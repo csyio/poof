@@ -18,11 +18,31 @@ Poof looks in the standard `~/Library` and `/Library` locations and matches entr
   already found (updaters often run from a support folder), or that list the app in
   `AssociatedBundleIdentifiers`.
 - **Privileged helpers** the app declares in `SMPrivilegedExecutables`.
+- **System extensions** (network filters, drivers) activated from inside the app, read from
+  macOS's extension database. These are deactivated rather than deleted.
 - **Installer receipts** (`pkgutil`). Packages are matched by ID and by the `.app` they
   contain, because installers often unpack apps in a temporary folder and move them, which
   makes the recorded location wrong for the app (but still right for the package's other files).
   Each package's files are reduced to the top-most folders it owns outside standard system
   folders, such as `/Library/Application Support/Fortinet`.
+
+## Files from apps that are already gone
+
+`poof orphans` lists files whose app is no longer installed, in two groups:
+
+- **Left by removed apps**: sandbox containers, app extension scripts and saved window
+  state (only apps create these), system extensions whose app is gone, and launch agents
+  or daemons whose program no longer exists.
+- **Probably left by removed apps**: preferences and caches named after a bundle ID. Command-line
+  tools and libraries write these too, so check them first.
+
+A file counts as orphaned only when no installed app comes from the same vendor
+(`com.microsoft.office.plist` stays while any Microsoft app is installed). Installers left
+in Downloads do not count as installed apps. Libraries and tools that use bundle-ID-style
+names (SwiftPM, CUPS, Electron, analytics SDKs) are listed in
+`Sources/PoofCore/KnownNonApps.swift`; contributions to that list are welcome.
+
+Login items are not covered yet: macOS keeps them in a database only administrators can read.
 
 ## Shared files
 
@@ -58,7 +78,8 @@ swift build -c release
 ## Usage
 
 ```sh
-poof scan chrome
+poof scan chrome      # an installed app and its files
+poof orphans          # files left by apps that are already gone
 poof --version
 ```
 
@@ -66,7 +87,7 @@ Items marked `[admin]` need administrator rights to remove.
 
 ## Roadmap
 
-1. Scanner: system extensions, kernel extensions, login items, browser extensions.
+1. Scanner: login items (needs a privileged helper), browser extensions.
 2. Benchmark: install apps in a clean VM, uninstall with Poof and other tools, publish what each leaves behind.
 3. Safe removal: move items to a quarantine folder that can be restored for 7 days; warn before deleting saved passwords or bookmarks.
 4. SwiftUI app with Full Disk Access.

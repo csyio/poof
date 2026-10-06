@@ -4,6 +4,13 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- `poof orphans` lists files left by apps that are no longer installed, split into items
+  only apps create and items a tool or library may also have created.
+- `poof scan` finds system extensions an app activated.
+- `Sources/PoofCore/KnownNonApps.swift`: libraries and tools whose files look like app data.
+
 ## [0.1.0] - 2026-10-06
 
 First preview. Poof can find an app's files but does not remove anything yet.

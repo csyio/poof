@@ -11,6 +11,11 @@ public struct Leftover: Sendable, Equatable {
         case privilegedHelper = "privileged helper declared by the app"
         case packageFile = "installed by package"
         case packageReceipt = "installer receipt"
+        case systemExtension = "system extension"
+        case orphanedSystemExtension = "system extension of a removed app"
+        case brokenLaunchItem = "launch item whose program is gone"
+        case orphanedAppData = "app data, no installed app from this vendor"
+        case orphanedBundleID = "named after an app, no installed app from this vendor"
     }
 
     public let url: URL
@@ -18,6 +23,10 @@ public struct Leftover: Sendable, Equatable {
     public let size: Int64
     /// Other apps that use this item. Removing it may break them.
     public var sharedWith: [String] = []
+    /// False when Poof's evidence is circumstantial and a person should check before removing.
+    public var isCertain: Bool { reason != .orphanedBundleID }
+    /// Extra context shown next to the item, e.g. a system extension's identifier and state.
+    public var detail: String?
     /// Needs administrator rights to remove.
     public var isSystem: Bool {
         !FileManager.default.isWritableFile(atPath: url.deletingLastPathComponent().path)
@@ -84,6 +93,15 @@ public struct LeftoverScanner: Sendable {
             )
         }
 
+        // macOS keeps its own copy of activated system extensions. They must be deactivated,
+        // not deleted, so the identifier travels with the item.
+        let extensionDB = library.appendingPathComponent("SystemExtensions/db.plist")
+        for ext in SystemExtension.load(from: extensionDB) where ext.belongs(to: app) {
+            let path = ext.stagedPath ?? "/Library/SystemExtensions"
+            found.add(systemRoot.appendingPathComponent(path), .systemExtension,
+                      detail: "\(ext.identifier), \(ext.kind), \(ext.state.replacingOccurrences(of: "_", with: " "))")
+        }
+
         // Updaters often live in a support folder rather than the app bundle
         // (Chrome's Keystone agent runs from ~/Library/Google/GoogleSoftwareUpdate).
         let roots = found.items.map(\.url.path)
@@ -103,7 +121,7 @@ public struct LeftoverScanner: Sendable {
     struct Found {
         var items: [Leftover] = []
 
-        mutating func add(_ url: URL, _ reason: Leftover.Reason, sharedWith: [String] = []) {
+        mutating func add(_ url: URL, _ reason: Leftover.Reason, sharedWith: [String] = [], detail: String? = nil) {
             let path = url.standardizedFileURL.path
             guard FileManager.default.fileExists(atPath: path) || (try? url.checkResourceIsReachable()) == true else {
                 return
@@ -112,7 +130,7 @@ public struct LeftoverScanner: Sendable {
             // A folder replaces items found inside it earlier.
             items.removeAll { $0.url.path.hasPrefix(path + "/") }
             items.append(Leftover(url: URL(fileURLWithPath: path), reason: reason,
-                                  size: LeftoverScanner.size(of: url), sharedWith: sharedWith))
+                                  size: LeftoverScanner.size(of: url), sharedWith: sharedWith, detail: detail))
         }
     }
 
