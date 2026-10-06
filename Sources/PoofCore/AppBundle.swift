@@ -40,7 +40,7 @@ public struct AppBundle: Sendable, Equatable {
         if query.hasSuffix(".app"), fileManager.fileExists(atPath: query) {
             return try AppBundle(at: URL(fileURLWithPath: query))
         }
-        let dirs = ["/Applications", "/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+        let dirs = ["/Applications", "/Applications/Utilities", UserContext.home.path + "/Applications"]
         // Some apps ship inside a folder ("/Applications/DaVinci Resolve/DaVinci Resolve.app").
         func apps(in dir: URL, depth: Int) -> [URL] {
             let entries = (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []

@@ -2,7 +2,8 @@
 
 Remove macOS apps and the files they leave behind.
 
-> Status: early development. `poof scan` lists files; nothing is removed yet.
+> Status: early development. Removal moves files to a quarantine you can restore from;
+> nothing is deleted until you run `poof purge`.
 
 ## How Poof finds an app's files
 
@@ -78,19 +79,43 @@ swift build -c release
 ## Usage
 
 ```sh
-poof scan chrome      # an installed app and its files
-poof orphans          # files left by apps that are already gone
-poof --version
+poof scan chrome            # an installed app and its files
+poof orphans                # files left by apps that are already gone
+poof remove chrome          # move the app and its files to quarantine
+sudo poof remove chrome     # same, including files in system folders
+poof restore                # list what is in quarantine
+poof restore --last         # put the last removal back
+poof purge --older-than 7   # permanently delete removals older than 7 days
 ```
+
+## Safe removal
+
+`poof remove` never deletes. It moves each item into
+`~/Library/Application Support/Poof/Quarantine/<session>/` and records its original path,
+so `poof restore` puts back the same files with the same permissions. Only `poof purge`
+deletes, and it asks first.
+
+Before moving anything, Poof:
+
+- refuses if the app is running;
+- keeps files another app or package also uses, and says which;
+- keeps system extensions, which macOS protects (remove them in System Settings);
+- skips files in system folders unless run with `sudo`, and prints the command;
+- warns about saved passwords, bookmarks, cookies, keychains and wallets inside the items,
+  and asks you to type `yes` instead of `y` (with `--yes`, it also needs `--allow-sensitive`);
+- unloads launch agents and daemons so they stop running.
+
+If macOS blocks access to an app's data (`~/Library/Containers` is protected), give your
+terminal Full Disk Access in System Settings > Privacy & Security.
 
 Items marked `[admin]` need administrator rights to remove.
 
 ## Roadmap
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
-2. Benchmark: install apps in a clean VM, uninstall with Poof and other tools, publish what each leaves behind.
-3. Safe removal: move items to a quarantine folder that can be restored for 7 days; warn before deleting saved passwords or bookmarks.
-4. SwiftUI app with Full Disk Access.
+2. `poof orphans --remove`.
+3. Benchmark: install apps in a clean VM, uninstall with Poof and other tools, publish what each leaves behind.
+4. SwiftUI app with Full Disk Access and a privileged helper.
 5. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
 ## Releases

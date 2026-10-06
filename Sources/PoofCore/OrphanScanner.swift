@@ -12,7 +12,7 @@ public struct OrphanScanner: Sendable {
     let installedIDs: Set<String>
 
     public init(
-        home: URL = URL(fileURLWithPath: NSHomeDirectory()),
+        home: URL = UserContext.home,
         systemRoot: URL = URL(fileURLWithPath: "/"),
         installedIDs: Set<String>? = nil
     ) {
@@ -109,7 +109,7 @@ public struct OrphanScanner: Sendable {
             process.waitUntilExit()
             paths.formUnion(String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init))
         }
-        for dir in ["/Applications", "/System/Applications", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications"] {
+        for dir in ["/Applications", "/System/Applications", "/System/Applications/Utilities", UserContext.home.path + "/Applications"] {
             for name in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where name.hasSuffix(".app") {
                 paths.insert(dir + "/" + name)
             }

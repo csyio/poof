@@ -10,6 +10,14 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   only apps create and items a tool or library may also have created.
 - `poof scan` finds system extensions an app activated.
 - `Sources/PoofCore/KnownNonApps.swift`: libraries and tools whose files look like app data.
+- `poof remove <app>` moves an app and its files into a quarantine folder. It keeps shared
+  files and system extensions, refuses while the app is running, unloads launch items, and
+  asks for a typed `yes` when items contain saved passwords, bookmarks or keys.
+- `poof restore` lists quarantine sessions and puts a removal back; `poof purge` deletes them.
+
+### Fixed
+
+- Under `sudo`, Poof scanned root's home folder instead of the user's.
 
 ## [0.1.0] - 2026-10-06
 

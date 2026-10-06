@@ -40,7 +40,7 @@ public struct LeftoverScanner: Sendable {
     let packages: any PackageDatabase
 
     public init(
-        home: URL = URL(fileURLWithPath: NSHomeDirectory()),
+        home: URL = UserContext.home,
         systemRoot: URL = URL(fileURLWithPath: "/"),
         packages: any PackageDatabase = SystemPackageDatabase()
     ) {
