@@ -1,0 +1,32 @@
+name: Release
+
+# Push a tag like v0.1.0 to build a universal binary and publish a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal binary
+        run: scripts/build-release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          scripts/release-notes.sh "$version" > notes.md
+          prerelease=""
+          [[ "$version" == 0.* || "$version" == *-* ]] && prerelease="--prerelease"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Poof $version" --notes-file notes.md $prerelease
