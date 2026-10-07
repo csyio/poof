@@ -36,6 +36,8 @@ struct ContentView: View {
                 Section {
                     Label("Leftovers", systemImage: "sparkles")
                         .tag(SidebarItem.orphans)
+                    Label("Developer", systemImage: "hammer")
+                        .tag(SidebarItem.developer)
                     Label("Quarantine", systemImage: "archivebox")
                         .badge(model.sessions.count)
                         .tag(SidebarItem.quarantine)
@@ -95,6 +97,8 @@ struct ContentView: View {
         switch model.selection {
         case .orphans, nil:
             OrphansView()
+        case .developer:
+            DeveloperView()
         case .quarantine:
             QuarantineView()
         case .app(let path):

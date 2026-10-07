@@ -18,6 +18,9 @@ public struct Leftover: Sendable, Equatable, Identifiable {
         case brokenLaunchItemOfInstalledVendor = "launch item whose program is gone, its vendor still has apps installed"
         case orphanedAppData = "app data, no installed app from this vendor"
         case orphanedBundleID = "named after an app, no installed app from this vendor"
+        case devCache = "developer cache, rebuilt when needed"
+        case devOrphanedBuild = "build output of a project that no longer exists"
+        case devReview = "developer data, review before removing"
     }
 
     public let url: URL
@@ -26,7 +29,12 @@ public struct Leftover: Sendable, Equatable, Identifiable {
     /// Other apps that use this item. Removing it may break them.
     public var sharedWith: [String] = []
     /// False when Poof's evidence is circumstantial and a person should check before removing.
-    public var isCertain: Bool { reason != .orphanedBundleID && reason != .brokenLaunchItemOfInstalledVendor }
+    public var isCertain: Bool {
+        ![.orphanedBundleID, .brokenLaunchItemOfInstalledVendor, .devReview].contains(reason)
+    }
+    /// The tool's own cleanup command, for data the tool tracks (simulators, Homebrew).
+    /// Such items are never moved by Poof.
+    public var cleanupCommand: String?
     /// Extra context shown next to the item, e.g. a system extension's identifier and state.
     public var detail: String?
     /// Needs administrator rights to remove.
@@ -35,12 +43,14 @@ public struct Leftover: Sendable, Equatable, Identifiable {
     }
     public var id: String { url.path }
 
-    public init(url: URL, reason: Reason, size: Int64, sharedWith: [String] = [], detail: String? = nil) {
+    public init(url: URL, reason: Reason, size: Int64, sharedWith: [String] = [], detail: String? = nil,
+                cleanupCommand: String? = nil) {
         self.url = url
         self.reason = reason
         self.size = size
         self.sharedWith = sharedWith
         self.detail = detail
+        self.cleanupCommand = cleanupCommand
     }
 }
 

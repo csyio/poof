@@ -4,6 +4,7 @@ import PoofCore
 
 enum SidebarItem: Hashable {
     case orphans
+    case developer
     case quarantine
     case app(String)  // bundle path
 }
@@ -62,6 +63,12 @@ final class AppModel {
     func planOrphans() async -> [Remover.PlannedItem] {
         await Task.detached {
             Remover(canWriteSystem: true).plan(OrphanScanner().scan())
+        }.value
+    }
+
+    func planDeveloper(projects: URL?) async -> [Remover.PlannedItem] {
+        await Task.detached {
+            Remover(canWriteSystem: true).plan(DeveloperScanner().scan(projects: projects))
         }.value
     }
 

@@ -55,6 +55,28 @@ names (SwiftPM, CUPS, Electron, analytics SDKs) are listed in
 
 Login items are not covered yet: macOS keeps them in a database only administrators can read.
 
+## Developer leftovers
+
+`poof dev` measures what developer tools leave behind and sorts it into four groups:
+
+- **Caches** that the tool downloads or rebuilds when needed: npm, Bun, Yarn, pnpm, pip,
+  uv, Cargo, Gradle, SwiftPM, CocoaPods, Playwright and Puppeteer browsers, Electron,
+  node-gyp, Xcode device symbols and shared Xcode caches.
+- **Build output of deleted projects.** Xcode writes each DerivedData folder's project path
+  into its `info.plist`; when that project is gone, the folder is certainly unused.
+- **Review first**: build output of projects that still exist (their next build starts from
+  scratch), Xcode archives, Maven, Android emulators, and with `--projects`, dependency and
+  build folders of projects untouched for `--idle-days` (default 30). A folder only counts
+  when the file that proves its tool is there (`node_modules` next to `package.json`,
+  `target` next to `Cargo.toml`).
+- **Managed by the tool**: simulators, Homebrew downloads, the Go module cache and Rust
+  toolchains. Moving these by hand leaves the tool's records pointing at files that are
+  gone, so Poof prints the tool's own command and never moves them.
+
+`--remove` takes the first two groups; `--include-review` adds the third. Quarantined items
+still use disk space until `poof purge`. Caches are not checked for personal data: package
+caches contain packages named `cookies` and test keychains.
+
 ## Comparison with AppCleaner
 
 Run on 2026-10-07 on macOS 27 against AppCleaner 3.6.8, using apps that were already
@@ -126,6 +148,9 @@ scripts/build-app.sh          # builds dist/Poof.app
 poof scan chrome            # an installed app and its files
 poof orphans                # files left by apps that are already gone
 poof orphans --remove       # quarantine the ones Poof is sure about
+poof dev                    # caches and build output of developer tools
+poof dev --projects ~/Code  # plus node_modules, .build, target... of idle projects
+poof dev --remove           # quarantine caches and build output of deleted projects
 poof remove chrome          # move the app and its files to quarantine
 sudo poof remove chrome     # same, including files in system folders
 poof restore                # list what is in quarantine
@@ -159,7 +184,6 @@ Items marked `[admin]` need administrator rights to remove.
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
 2. Developer ID signing and notarization.
-3. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
 ## Releases
 

@@ -33,7 +33,8 @@ struct AppDetailView: View {
                     name: app.displayName,
                     bundleID: app.bundleID,
                     blockedReason: model.isRunning(app) ? "\(app.displayName) is running. Quit it to remove it." : nil,
-                    onFinished: { await rescan() }
+                    onFinished: { await rescan() },
+                    certainTitle: "Files"
                 )
             } else {
                 ProgressView("Looking for \(app.displayName)'s files…")
@@ -104,6 +105,73 @@ struct OrphansView: View {
     }
 }
 
+/// Caches and build output of developer tools.
+struct DeveloperView: View {
+    @Environment(AppModel.self) private var model
+    @State private var plan: [Remover.PlannedItem]?
+    @State private var projects: URL?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Developer").font(.title2.bold())
+                    Text(projects.map { "Caches, build output, and idle projects in \(abbreviate($0.path))." }
+                         ?? "Caches and build output of developer tools. Quarantined items use space until you delete them.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Choose Projects Folder…") { chooseProjects() }
+                Button {
+                    Task { await rescan() }
+                } label: {
+                    Label("Scan Again", systemImage: "arrow.clockwise")
+                }
+                .disabled(plan == nil)
+            }
+            .padding(20)
+            Divider()
+
+            if let plan {
+                if plan.isEmpty {
+                    ContentUnavailableView("Nothing to clean", systemImage: "checkmark.seal")
+                        .frame(maxHeight: .infinity)
+                } else {
+                    RemovalList(
+                        plan: plan,
+                        preselected: Set(plan.filter { $0.action == .move && $0.item.isCertain }.map(\.id)),
+                        name: "Developer files",
+                        bundleID: nil,
+                        blockedReason: nil,
+                        onFinished: { await rescan() },
+                        certainTitle: "Caches and build output of deleted projects",
+                        unsureTitle: "Review first",
+                        unsureFooter: "Build output of existing projects (their next build starts from scratch), archives, and build folders of projects untouched for 30 days."
+                    )
+                }
+            } else {
+                ProgressView("Measuring developer caches…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task { await rescan() }
+    }
+
+    private func rescan() async {
+        plan = nil
+        plan = await model.planDeveloper(projects: projects)
+    }
+
+    private func chooseProjects() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Scan Projects"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projects = url
+        Task { await rescan() }
+    }
+}
+
 /// Checkable list of planned items with a footer that runs the removal.
 struct RemovalList: View {
     @Environment(AppModel.self) private var model
@@ -112,6 +180,9 @@ struct RemovalList: View {
     let bundleID: String?
     let blockedReason: String?
     let onFinished: () async -> Void
+    let certainTitle: String
+    let unsureTitle: String
+    let unsureFooter: String
 
     @State private var selected: Set<String>
     @State private var confirming = false
@@ -119,12 +190,18 @@ struct RemovalList: View {
     @State private var result: RemovalResult?
 
     init(plan: [Remover.PlannedItem], preselected: Set<String>, name: String, bundleID: String?,
-         blockedReason: String?, onFinished: @escaping () async -> Void) {
+         blockedReason: String?, onFinished: @escaping () async -> Void,
+         certainTitle: String = "Left by removed apps",
+         unsureTitle: String = "Check before removing",
+         unsureFooter: String = "A command-line tool or library may have created these, or the vendor still has apps installed.") {
         self.plan = plan
         self.name = name
         self.bundleID = bundleID
         self.blockedReason = blockedReason
         self.onFinished = onFinished
+        self.certainTitle = certainTitle
+        self.unsureTitle = unsureTitle
+        self.unsureFooter = unsureFooter
         _selected = State(initialValue: preselected)
     }
 
@@ -141,7 +218,7 @@ struct RemovalList: View {
                 let certain = movable.filter(\.item.isCertain)
                 let unsure = movable.filter { !$0.item.isCertain }
                 if !certain.isEmpty {
-                    Section(unsure.isEmpty ? "Files" : "Left by removed apps") {
+                    Section(certainTitle) {
                         ForEach(certain) { row($0) }
                     }
                 }
@@ -149,9 +226,9 @@ struct RemovalList: View {
                     Section {
                         ForEach(unsure) { row($0) }
                     } header: {
-                        Text("Check before removing")
+                        Text(unsureTitle)
                     } footer: {
-                        Text("A command-line tool or library may have created these, or the vendor still has apps installed.")
+                        Text(unsureFooter)
                     }
                 }
                 if !kept.isEmpty {
@@ -242,7 +319,7 @@ struct ItemRow: View {
                         .foregroundStyle(.orange)
                 }
                 if !planned.sensitiveFiles.isEmpty {
-                    Label("Contains \(planned.sensitiveFiles.prefix(3).map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))",
+                    Label("Contains \(Array(Set(planned.sensitiveFiles.map { ($0 as NSString).lastPathComponent })).sorted().prefix(3).joined(separator: ", "))",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.red)

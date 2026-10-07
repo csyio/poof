@@ -8,7 +8,7 @@ struct Poof: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Remove macOS apps and everything they leave behind.",
         version: poofVersion,
-        subcommands: [Scan.self, Orphans.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
+        subcommands: [Scan.self, Orphans.self, Dev.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
     )
 }
 
@@ -74,6 +74,68 @@ struct Orphans: ParsableCommand {
         if !includeUnsure && !unsure.isEmpty {
             print("\n\(unsure.count) items Poof is not sure about were kept. Review them with `poof orphans`.")
         }
+    }
+}
+
+struct Dev: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "List caches and build output left by developer tools. With --remove, quarantine them.",
+        discussion: """
+        --remove moves caches and the build output of deleted projects. Add --include-review \
+        for archives, toolchains and build folders of idle projects. Data a tool tracks itself \
+        (simulators, Homebrew, Go) is never moved; Poof prints the tool's own command instead. \
+        Quarantined items still use disk space until `poof purge`.
+        """
+    )
+
+    @Option(help: "Also look for dependency and build folders (node_modules, .build, target...) in projects under this folder.")
+    var projects: String?
+
+    @Option(help: "With --projects, only report projects untouched for this many days.")
+    var idleDays = 30
+
+    @Flag(help: "Move the items to quarantine. Undo with `poof restore`.")
+    var remove = false
+
+    @Flag(help: "With --remove, also move items marked for review.")
+    var includeReview = false
+
+    @OptionGroup var options: RemovalOptions
+
+    func run() throws {
+        let root = projects.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        let items = DeveloperScanner().scan(projects: root, idleDays: idleDays)
+        let commands = items.filter { $0.cleanupCommand != nil }
+        let caches = items.filter { $0.cleanupCommand == nil && $0.isCertain }
+        let review = items.filter { $0.cleanupCommand == nil && !$0.isCertain }
+
+        guard remove else {
+            for (title, group) in [("Caches and build output of deleted projects (safe to remove):", caches),
+                                   ("Review first:", review)] where !group.isEmpty {
+                print(title + "\n")
+                printItems(group)
+                print("")
+            }
+            if !commands.isEmpty {
+                print("Clean with the tool's own command:\n")
+                for item in commands {
+                    print("\(format(item.size).padding(toLength: 10, withPad: " ", startingAt: 0)) \(item.detail ?? item.url.path)")
+                    print("           \(item.cleanupCommand ?? "")")
+                }
+                print("")
+            }
+            if items.isEmpty { print("No developer leftovers found.") } else { printTotal(items, suffix: "Nothing was removed.") }
+            return
+        }
+
+        let selected = caches + (includeReview ? review : [])
+        guard !selected.isEmpty else {
+            print("Nothing to remove.")
+            return
+        }
+        try performRemoval(of: selected, name: "Developer files", bundleID: nil,
+                           retry: "poof dev --remove\(includeReview ? " --include-review" : "")", options: options)
+        print("Quarantined items still use disk space. Free it with `poof purge <session>` once you are sure.")
     }
 }
 

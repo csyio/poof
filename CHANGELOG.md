@@ -15,6 +15,9 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   crash reports, and logs nested in vendor folders. Helpers that other installed apps also
   embed are marked shared.
 - README: comparison with AppCleaner on FortiClient, DaVinci Resolve, Word and Antigravity.
+- `poof dev` and a Developer section in the app: developer caches, DerivedData of deleted
+  projects, build folders of idle projects (`--projects`), and the cleanup command for data
+  a tool manages itself (simulators, Homebrew, Go, Rust toolchains).
 
 - `poof orphans` lists files left by apps that are no longer installed, split into items
   only apps create and items a tool or library may also have created.

@@ -50,7 +50,9 @@ public struct Remover: Sendable {
     public func plan(_ items: [Leftover]) -> [PlannedItem] {
         items.map { item in
             let action: Action
-            if item.reason == .systemExtension || item.reason == .orphanedSystemExtension {
+            if let command = item.cleanupCommand {
+                action = .skip("managed by its tool; clean it with: \(command)")
+            } else if item.reason == .systemExtension || item.reason == .orphanedSystemExtension {
                 action = .skip("system extensions are protected by macOS; remove it in System Settings > General > Login Items & Extensions")
             } else if !item.sharedWith.isEmpty {
                 action = .skip("also used by \(item.sharedWith.joined(separator: ", "))")
@@ -59,7 +61,10 @@ public struct Remover: Sendable {
             } else {
                 action = .move
             }
-            return PlannedItem(item: item, action: action, sensitiveFiles: action == .move ? SensitiveData.find(in: item.url) : [])
+            // Package caches hold packages named "cookies" and test keychains, not anyone's data.
+            let isDeveloperData = [.devCache, .devOrphanedBuild, .devReview].contains(item.reason)
+            let sensitive = action == .move && !isDeveloperData ? SensitiveData.find(in: item.url) : []
+            return PlannedItem(item: item, action: action, sensitiveFiles: sensitive)
         }
     }
 

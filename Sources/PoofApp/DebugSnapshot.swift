@@ -18,6 +18,7 @@ enum DebugSnapshot {
                 switch target {
                 case "orphans": model.selection = .orphans
                 case "quarantine": model.selection = .quarantine
+                case "developer": model.selection = .developer
                 default:
                     if let app = model.apps.first(where: { $0.displayName.lowercased().contains(target) }) {
                         model.selection = .app(app.url.path)
