@@ -11,6 +11,7 @@ public struct Leftover: Sendable, Equatable, Identifiable {
         case privilegedHelper = "privileged helper declared by the app"
         case packageFile = "installed by package"
         case packageReceipt = "installer receipt"
+        case crashReport = "crash report"
         case systemExtension = "system extension"
         case orphanedSystemExtension = "system extension of a removed app"
         case brokenLaunchItem = "launch item whose program is gone"
@@ -74,16 +75,43 @@ public struct LeftoverScanner: Sendable {
         let dirs = Self.userLibraryDirs.map { home.appendingPathComponent("Library/\($0)") }
             + Self.systemLibraryDirs.map { systemRoot.appendingPathComponent("Library/\($0)") }
 
+        let identity = Identity(app, shared: app.sharedHelpers())
         var found = Found()
         found.add(app.url, .appBundle)
         for dir in dirs {
             guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
             for entry in entries {
-                if let reason = match(entry, app: app) {
-                    found.add(entry, reason)
-                } else if let nested = vendorFolder(entry, app: app) {
+                if let reason = match(entry, identity: identity) {
+                    found.add(entry, reason, sharedWith: identity.sharedWith(entry))
+                } else if let nested = vendorFolder(entry, names: identity.names) {
                     found.add(nested, .appName)
                 }
+            }
+        }
+
+        // Vendors nest logs in their own folders ("/Library/Logs/Microsoft/InstallLogs/
+        // com.microsoft.word.update.generic.log"), so look a few levels into Logs for files
+        // named after one of the app's bundle IDs.
+        for logs in [home.appendingPathComponent("Library/Logs"), systemRoot.appendingPathComponent("Library/Logs")] {
+            guard let walker = fm.enumerator(at: logs, includingPropertiesForKeys: nil) else { continue }
+            for case let entry as URL in walker {
+                if walker.level > 3 { walker.skipDescendants(); continue }
+                guard walker.level > 1 else { continue }
+                let stem = Self.stripExtensions(entry.lastPathComponent.lowercased())
+                let base = (stem as NSString).deletingPathExtension  // drop ".log"
+                if let owner = identity.owner(of: stem) ?? identity.owner(of: base) {
+                    found.add(entry, .bundleID, sharedWith: identity.shared[owner] ?? [])
+                }
+            }
+        }
+
+        // Crash reports are named after the process: "Resolve_<host UUID>.plist",
+        // "Resolve-2026-10-07-101500.ips".
+        let reportDirs = ["Library/Application Support/CrashReporter", "Library/Logs/DiagnosticReports"]
+        for dir in reportDirs {
+            for entry in (try? fm.contentsOfDirectory(at: home.appendingPathComponent(dir), includingPropertiesForKeys: nil)) ?? []
+            where Self.isCrashReport(entry.lastPathComponent, of: identity.executables) {
+                found.add(entry, .crashReport)
             }
         }
 
@@ -97,10 +125,13 @@ public struct LeftoverScanner: Sendable {
             for owned in package.ownedPaths {
                 found.add(systemRoot.appendingPathComponent(owned.path), .packageFile, sharedWith: owned.sharedWith)
             }
-            found.add(
-                systemRoot.appendingPathComponent("private/var/db/receipts/\(package.packageID).plist"),
-                .packageReceipt, sharedWith: package.otherApps
-            )
+            // A receipt is a pair: the .plist with package info and the .bom with its file list.
+            for ext in ["plist", "bom"] {
+                found.add(
+                    systemRoot.appendingPathComponent("private/var/db/receipts/\(package.packageID).\(ext)"),
+                    .packageReceipt, sharedWith: package.otherApps
+                )
+            }
         }
 
         // macOS keeps its own copy of activated system extensions. They must be deactivated,
@@ -144,40 +175,99 @@ public struct LeftoverScanner: Sendable {
         }
     }
 
+    /// Everything that identifies an app's files: its own and its helpers' bundle IDs,
+    /// names and executable names.
+    struct Identity {
+        let bundleIDs: [String]  // lowercased
+        let names: [String]
+        let executables: [String]
+        let teamID: String?
+        let appPath: String
+        /// Helper bundle IDs other installed apps also embed, mapped to those apps.
+        let shared: [String: [String]]
+
+        init(_ app: AppBundle, shared: [String: [String]] = [:]) {
+            let identity = app.identity()
+            bundleIDs = identity.bundleIDs.map { $0.lowercased() }
+            names = identity.names
+            executables = identity.executables
+            teamID = app.teamID?.lowercased()
+            appPath = app.url.path
+            self.shared = shared
+        }
+
+        func owner(of id: String) -> String? {
+            // Longest match first, so com.microsoft.Word.widgetextension wins over com.microsoft.Word.
+            bundleIDs.sorted { $0.count > $1.count }.first { id == $0 || id.hasPrefix($0 + ".") }
+        }
+
+        func owns(_ id: String) -> Bool { owner(of: id) != nil }
+
+        /// Other apps that use the helper an entry is named after.
+        func sharedWith(_ entry: URL) -> [String] {
+            var name = LeftoverScanner.stripExtensions(entry.lastPathComponent.lowercased())
+            if let team = teamID, name.hasPrefix(team + ".") {
+                name = String(name.dropFirst(team.count + 1))
+                if name.hasPrefix("group.") { name = String(name.dropFirst(6)) }
+            }
+            return owner(of: name).flatMap { shared[$0] } ?? []
+        }
+    }
+
     func match(_ entry: URL, app: AppBundle) -> Leftover.Reason? {
+        match(entry, identity: Identity(app))
+    }
+
+    func match(_ entry: URL, identity: Identity) -> Leftover.Reason? {
         let name = entry.lastPathComponent.lowercased()
         let stem = Self.stripExtensions(name)
-        let bundleID = app.bundleID.lowercased()
 
         // Exact bundle ID or a child of it (com.google.Chrome, com.google.Chrome.helper),
         // but never a sibling under the same vendor prefix (com.google.antigravity).
-        if stem == bundleID || stem.hasPrefix(bundleID + ".") { return .bundleID }
+        if identity.owns(stem) { return .bundleID }
         // A team ID alone is shared by every app from that developer (Office, Teams, OneDrive...),
         // so the rest of the name must still point at this app.
-        if let team = app.teamID?.lowercased(), entry.deletingLastPathComponent().lastPathComponent == "Group Containers",
+        if let team = identity.teamID, entry.deletingLastPathComponent().lastPathComponent == "Group Containers",
            name.hasPrefix(team + ".") {
             let rest = String(name.dropFirst(team.count + 1))
             let group = rest.hasPrefix("group.") ? String(rest.dropFirst(6)) : rest
-            if group == bundleID || group.hasPrefix(bundleID + ".") { return .teamID }
+            if identity.owns(group) { return .teamID }
         }
-        if app.names.contains(where: { $0.lowercased() == stem }) { return .appName }
+        if identity.names.contains(where: { $0.lowercased() == stem }) { return .appName }
         if entry.pathExtension == "plist", entry.deletingLastPathComponent().lastPathComponent.hasPrefix("Launch"),
-           launchItem(entry, runsFrom: [app.url.path]) || launchItem(entry, isAssociatedWith: app.bundleID) {
+           launchItem(entry, runsFrom: [identity.appPath])
+            || identity.bundleIDs.contains(where: { launchItem(entry, isAssociatedWith: $0) }) {
             return .launchItem
         }
         return nil
     }
 
+    /// "Resolve_054C896E-8136-5519-8DA0-02A1B6833FB3.plist" or "Resolve-2026-10-07-101500.ips".
+    static func isCrashReport(_ name: String, of executables: [String]) -> Bool {
+        executables.contains { exe in
+            if name.hasPrefix(exe + "_"), name.hasSuffix(".plist") {
+                let uuid = name.dropFirst(exe.count + 1).dropLast(6)
+                return UUID(uuidString: String(uuid)) != nil
+            }
+            let reportTypes = ["ips", "crash", "diag", "spin", "hang"]
+            return name.hasPrefix(exe + "-") && reportTypes.contains((name as NSString).pathExtension)
+        }
+    }
+
     /// Data kept inside a vendor folder: "Blackmagic Design/DaVinci Resolve", or
     /// "Google/Chrome" where the vendor folder holds the rest of the app name.
     func vendorFolder(_ entry: URL, app: AppBundle) -> URL? {
+        vendorFolder(entry, names: app.names)
+    }
+
+    func vendorFolder(_ entry: URL, names: [String]) -> URL? {
         guard ["Application Support", "Caches", "Logs"].contains(entry.deletingLastPathComponent().lastPathComponent)
         else { return nil }
-        for name in app.names {
+        for name in names {
             let child = entry.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: child.path) { return child }
         }
-        for name in app.names {
+        for name in names {
             let words = name.split(separator: " ")
             guard words.count > 1, entry.lastPathComponent.lowercased() == words[0].lowercased() else { continue }
             let child = entry.appendingPathComponent(words.dropFirst().joined(separator: " "))

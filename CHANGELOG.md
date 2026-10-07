@@ -11,6 +11,10 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   explicit acknowledgement; files in system folders are moved by the bundled CLI after the
   administrator password prompt. Shows a banner while Full Disk Access is missing.
 - Releases include `Poof-<version>.zip`.
+- `poof scan` finds files of helper apps, extensions and XPC services inside the bundle,
+  crash reports, and logs nested in vendor folders. Helpers that other installed apps also
+  embed are marked shared.
+- README: comparison with AppCleaner on FortiClient, DaVinci Resolve, Word and Antigravity.
 
 - `poof orphans` lists files left by apps that are no longer installed, split into items
   only apps create and items a tool or library may also have created.
@@ -29,6 +33,8 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   still has apps installed (FortiClient keeps daemons for features that are not enabled).
 
 ### Fixed
+
+- Removing an installer receipt now moves its `.bom` file along with the `.plist`.
 
 - Under `sudo`, Poof scanned root's home folder instead of the user's.
 

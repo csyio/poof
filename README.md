@@ -18,6 +18,11 @@ Poof looks in the standard `~/Library` and `/Library` locations and matches entr
 - **Launch agents and daemons** whose program is inside the app bundle or inside a folder
   already found (updaters often run from a support folder), or that list the app in
   `AssociatedBundleIdentifiers`.
+- **Helper apps, extensions and XPC services inside the bundle** from the same vendor, which
+  have their own bundle IDs. A helper that other installed apps also embed (Office's error
+  reporter) is marked shared.
+- **Crash reports** in `CrashReporter` and `DiagnosticReports`, by executable name.
+- **Logs in vendor folders**, a few levels into `Logs`, by bundle ID.
 - **Privileged helpers** the app declares in `SMPrivilegedExecutables`.
 - **System extensions** (network filters, drivers) activated from inside the app, read from
   macOS's extension database. These are deactivated rather than deleted.
@@ -49,6 +54,24 @@ names (SwiftPM, CUPS, Electron, analytics SDKs) are listed in
 `Sources/PoofCore/KnownNonApps.swift`; contributions to that list are welcome.
 
 Login items are not covered yet: macOS keeps them in a database only administrators can read.
+
+## Comparison with AppCleaner
+
+Run on 2026-10-07 on macOS 27 against AppCleaner 3.6.8, using apps that were already
+installed. Nothing was removed; both tools' lists were compared item by item.
+
+| App | AppCleaner | Poof | Difference |
+|---|---|---|---|
+| FortiClient 7.4 | 31 files, 294 MB | 34 items, 407 MB | AppCleaner misses `/Library/Application Support/Fortinet` (102.5 MB), `~/Library/Application Support/Fortinet/FortiClient` (5.4 MB) and the VPN system extension. |
+| DaVinci Resolve 21 | 7 files, 6.28 GB | 14 items, 5.98 GB | AppCleaner misses Resolve's data in `~/Library/Application Support/Blackmagic Design/DaVinci Resolve` (46 MB) and `/Library/Application Support/Blackmagic Design/DaVinci Resolve` (832 MB). It checks the whole `/Applications/DaVinci Resolve` folder, which also holds DaVinci Control Panels Setup and Fairlight Studio Utility from separate packages; Poof keeps those. |
+| Microsoft Word 16 | 15 files, 8 checked | 10 items | AppCleaner checks `com.microsoft.errorreporting` by default, which Excel, Outlook, PowerPoint, OneNote, OneDrive and Copilot also embed. Poof marks it shared and keeps it. Both leave Office's shared group containers alone. |
+| Antigravity 2.19 | 5 files, 504 MB | 5 items, 504 MB | Same result. |
+
+AppCleaner refuses to inspect running apps, so OneDrive was not compared.
+
+The comparison also found gaps in Poof, now fixed: installer receipts' `.bom` files, files
+from helper apps inside the bundle (DaVinci Resolve Welcome), crash reports, and logs nested
+in vendor folders (`/Library/Logs/Microsoft/InstallLogs`).
 
 ## Shared files
 
@@ -135,9 +158,8 @@ Items marked `[admin]` need administrator rights to remove.
 ## Roadmap
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
-2. Comparison: run Poof and other uninstallers on the same installed apps and publish what each one finds.
-3. Developer ID signing and notarization.
-4. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
+2. Developer ID signing and notarization.
+3. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
 ## Releases
 
