@@ -114,7 +114,7 @@ Items marked `[admin]` need administrator rights to remove.
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
 2. `poof orphans --remove`.
-3. Benchmark: install apps in a clean VM, uninstall with Poof and other tools, publish what each leaves behind.
+3. Comparison: run Poof and other uninstallers on the same installed apps and publish what each one finds.
 4. SwiftUI app with Full Disk Access and a privileged helper.
 5. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
