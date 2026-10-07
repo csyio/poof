@@ -61,7 +61,7 @@ struct OrphanScannerTests {
     }
 
     @Test func installersDoNotCountAsInstalledApps() {
-        #expect(OrphanScanner.isInstallerOrStaged("/Users/can/Downloads/lghub_installer.app"))
+        #expect(OrphanScanner.isInstallerOrStaged("/Users/someone/Downloads/lghub_installer.app"))
         #expect(OrphanScanner.isInstallerOrStaged("/Applications/FortiClientUninstaller.app"))
         #expect(OrphanScanner.isInstallerOrStaged("/Library/SystemExtensions/47CB/com.logi.ghub.hidfilter.dext"))
         #expect(!OrphanScanner.isInstallerOrStaged("/Applications/FortiClient.app"))

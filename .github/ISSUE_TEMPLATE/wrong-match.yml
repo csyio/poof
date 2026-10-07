@@ -1,0 +1,30 @@
+name: Wrong match
+description: Poof listed a file that does not belong to the app, or missed one that does.
+labels: [matching]
+body:
+  - type: input
+    id: app
+    attributes:
+      label: App and version
+      placeholder: Microsoft Word 16.113
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output of `poof scan <app>` (or `poof orphans`, `poof dev`)
+      description: Remove anything private from paths before posting.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong
+      description: Which item should not be listed, or which file is missing, and how you know.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version

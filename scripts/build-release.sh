@@ -21,12 +21,19 @@ binary="$("${build[@]}" --show-bin-path)/poof"
 dist="$root/dist"
 rm -rf "$dist" && mkdir -p "$dist/poof-$version"
 cp "$binary" README.md LICENSE "$dist/poof-$version/"
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$dist/poof-$version/poof"
+  "$root/scripts/notarize.sh" "$dist/poof-$version/poof"
+fi
 tar -C "$dist" -czf "$dist/poof-$version-macos-universal.tar.gz" "poof-$version"
 (cd "$dist" && shasum -a 256 "poof-$version-macos-universal.tar.gz" > "poof-$version-macos-universal.tar.gz.sha256")
 rm -rf "$dist/poof-$version"
 
 # The app, zipped with ditto so the bundle's signature and metadata survive.
 "$root/scripts/build-app.sh" "$dist" > /dev/null
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  "$root/scripts/notarize.sh" "$dist/Poof.app"
+fi
 ditto -c -k --keepParent "$dist/Poof.app" "$dist/Poof-$version.zip"
 rm -rf "$dist/Poof.app"
 (cd "$dist" && shasum -a 256 "Poof-$version.zip" > "Poof-$version.zip.sha256")

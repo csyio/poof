@@ -42,9 +42,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature: enough to run locally and for Full Disk Access to stick to this build.
-# Not notarized, so a downloaded copy needs "Open Anyway" in System Settings once.
-codesign --force --sign - "$app/Contents/Helpers/poof"
-codesign --force --sign - "$app"
+# With SIGN_IDENTITY ("Developer ID Application: Name (TEAMID)") the app is signed for
+# notarization: hardened runtime and a secure timestamp. Without it, an ad-hoc signature is
+# enough to run locally, but a downloaded copy needs "Open Anyway" in System Settings once.
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  sign=(codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY")
+else
+  sign=(codesign --force --sign -)
+fi
+"${sign[@]}" "$app/Contents/Helpers/poof"
+"${sign[@]}" "$app"
 codesign --verify --strict "$app"
 echo "$app"

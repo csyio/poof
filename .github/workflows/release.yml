@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+
 jobs:
   release:
     runs-on: macos-15
@@ -17,7 +20,32 @@ jobs:
       - name: Test
         run: swift test
 
-      - name: Build universal binary
+      # Optional: with these secrets set, releases are signed with a Developer ID and
+      # notarized. Without them, the build is ad-hoc signed as before.
+      - name: Import signing certificate
+        if: ${{ env.DEVELOPER_ID_P12 != '' }}
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)"
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+
+      - name: Build universal binary and app
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: scripts/build-release.sh "${GITHUB_REF_NAME#v}"
 
       - name: Publish release

@@ -4,13 +4,20 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
+Removal, a Mac app, and scanning for files from removed apps, developer tools and login items.
+
 ### Added
 
 - Poof.app: a SwiftUI app with the installed apps, leftovers of removed apps and the
   quarantine. Items can be checked and unchecked before removal; personal data needs an
   explicit acknowledgement; files in system folders are moved by the bundled CLI after the
   administrator password prompt. Shows a banner while Full Disk Access is missing.
-- Releases include `Poof-<version>.zip`.
+- Releases include `Poof-<version>.zip`. With Developer ID secrets set in the repository,
+  the release workflow signs and notarizes the app and the CLI.
+- App icon (`scripts/make-icns.sh` draws it).
+- `CONTRIBUTING.md`, `SECURITY.md`, and issue templates for wrong matches and bugs.
 - `poof scan` finds files of helper apps, extensions and XPC services inside the bundle,
   crash reports, and logs nested in vendor folders. Helpers that other installed apps also
   embed are marked shared.
