@@ -55,6 +55,18 @@ names (SwiftPM, CUPS, Electron, analytics SDKs) are listed in
 
 Login items are not covered yet: macOS keeps them in a database only administrators can read.
 
+## Login and background items
+
+`sudo poof login-items` lists what macOS's background task database holds: apps that open at
+login, login items inside apps, launch agents and daemons, and apps' background tasks, with
+whether each is on and whether the file it points at still exists. The app shows the same list
+after asking for your password. `sudo poof scan <app>` includes the app's own records.
+
+These records are not files. macOS removes them when their app or plist is gone, and only
+System Settings > General > Login Items & Extensions turns them off, so Poof never changes
+them. Records whose file is missing usually come from a launch agent or daemon left behind;
+`poof orphans` finds and removes those plists.
+
 ## Developer leftovers
 
 `poof dev` measures what developer tools leave behind and sorts it into four groups:
@@ -151,6 +163,7 @@ poof orphans --remove       # quarantine the ones Poof is sure about
 poof dev                    # caches and build output of developer tools
 poof dev --projects ~/Code  # plus node_modules, .build, target... of idle projects
 poof dev --remove           # quarantine caches and build output of deleted projects
+sudo poof login-items       # what starts at login or runs in the background
 poof remove chrome          # move the app and its files to quarantine
 sudo poof remove chrome     # same, including files in system folders
 poof restore                # list what is in quarantine
@@ -182,7 +195,7 @@ Items marked `[admin]` need administrator rights to remove.
 
 ## Roadmap
 
-1. Scanner: login items (needs a privileged helper), browser extensions.
+1. Scanner: browser extensions.
 2. Developer ID signing and notarization.
 
 ## Releases

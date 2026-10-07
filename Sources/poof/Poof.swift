@@ -8,7 +8,7 @@ struct Poof: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Remove macOS apps and everything they leave behind.",
         version: poofVersion,
-        subcommands: [Scan.self, Orphans.self, Dev.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
+        subcommands: [Scan.self, Orphans.self, Dev.self, LoginItems.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
     )
 }
 
@@ -26,6 +26,9 @@ struct Scan: ParsableCommand {
         let items = LeftoverScanner().scan(bundle)
         printItems(items)
         printTotal(items, suffix: "Nothing was removed.")
+        if !UserContext.isRoot {
+            print("Run with sudo to include login and background items.")
+        }
     }
 }
 
@@ -136,6 +139,64 @@ struct Dev: ParsableCommand {
         try performRemoval(of: selected, name: "Developer files", bundleID: nil,
                            retry: "poof dev --remove\(includeReview ? " --include-review" : "")", options: options)
         print("Quarantined items still use disk space. Free it with `poof purge <session>` once you are sure.")
+    }
+}
+
+struct LoginItems: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "login-items",
+        abstract: "List apps and helpers that start at login or run in the background. Needs sudo.",
+        discussion: """
+        Reads macOS's background task database, which only root can read. Nothing is changed: \
+        macOS drops records whose app is gone, and you turn items off in System Settings > \
+        General > Login Items & Extensions.
+        """
+    )
+
+    @Flag(help: "Include Spotlight, Quick Look and other plug-in records.")
+    var all = false
+
+    @Flag(help: "Print JSON (used by Poof.app).")
+    var json = false
+
+    @Option(help: .hidden)
+    var from: String?
+
+    func run() throws {
+        let items: [LoginItem]
+        do {
+            if let from {
+                items = LoginItem.parse(dump: try String(contentsOfFile: from, encoding: .utf8), uid: UserContext.uid)
+            } else {
+                items = try LoginItem.load()
+            }
+        } catch let error as LoginItem.Failure {
+            throw ValidationError(error.description)
+        }
+        let shown = items.filter { all || $0.isUserFacing }
+
+        if json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            print(String(decoding: try encoder.encode(shown), as: UTF8.self))
+            return
+        }
+
+        let missing = shown.filter { !$0.targetExists }
+        let on = shown.filter { $0.enabled && $0.targetExists }
+        let off = shown.filter { !$0.enabled && $0.targetExists }
+        for (title, group) in [("Points at a file that no longer exists:", missing),
+                               ("On:", on), ("Off:", off)] where !group.isEmpty {
+            print(title + "\n")
+            for item in group.sorted(by: { ($0.developer ?? "~", $0.name) < ($1.developer ?? "~", $1.name) }) {
+                let developer = item.developer.map { " · \($0)" } ?? ""
+                print("  \(item.name)  (\(item.type))\(developer)")
+                if let path = item.executablePath ?? item.path { print("    \(path)") }
+            }
+            print("")
+        }
+        print("\(shown.count) items: \(on.count) on, \(off.count) off, \(missing.count) pointing at missing files.")
+        print("Turn items off in System Settings > General > Login Items & Extensions.")
     }
 }
 

@@ -21,6 +21,7 @@ public struct Leftover: Sendable, Equatable, Identifiable {
         case devCache = "developer cache, rebuilt when needed"
         case devOrphanedBuild = "build output of a project that no longer exists"
         case devReview = "developer data, review before removing"
+        case loginItem = "login or background item"
     }
 
     public let url: URL
@@ -59,15 +60,18 @@ public struct LeftoverScanner: Sendable {
     let home: URL
     let systemRoot: URL
     let packages: any PackageDatabase
+    let loginItemSource: @Sendable () throws -> [LoginItem]
 
     public init(
         home: URL = UserContext.home,
         systemRoot: URL = URL(fileURLWithPath: "/"),
-        packages: any PackageDatabase = SystemPackageDatabase()
+        packages: any PackageDatabase = SystemPackageDatabase(),
+        loginItems: @escaping @Sendable () throws -> [LoginItem] = { try LoginItem.load() }
     ) {
         self.home = home
         self.systemRoot = systemRoot
         self.packages = packages
+        self.loginItemSource = loginItems
     }
 
     static let userLibraryDirs = [
@@ -165,7 +169,17 @@ public struct LeftoverScanner: Sendable {
                 }
             }
         }
-        return found.items
+        return found.items + loginItems(for: identity)
+    }
+
+    /// Records in macOS's login item database. They are not files and macOS drops them once
+    /// the app is gone, so they are listed for information and never moved. Needs root.
+    func loginItems(for identity: Identity) -> [Leftover] {
+        guard let items = try? loginItemSource() else { return [] }
+        return items.filter { $0.isUserFacing && $0.belongs(to: identity.bundleIDs, appPath: identity.appPath) }.map { item in
+            Leftover(url: URL(fileURLWithPath: item.path ?? item.executablePath ?? identity.appPath), reason: .loginItem,
+                     size: 0, detail: "\(item.name): \(item.type), \(item.enabled ? "on" : "off")")
+        }
     }
 
     /// Collects existing items once each, skipping anything inside an item already found.

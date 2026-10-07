@@ -5,6 +5,7 @@ import PoofCore
 enum SidebarItem: Hashable {
     case orphans
     case developer
+    case loginItems
     case quarantine
     case app(String)  // bundle path
 }

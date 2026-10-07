@@ -50,7 +50,9 @@ public struct Remover: Sendable {
     public func plan(_ items: [Leftover]) -> [PlannedItem] {
         items.map { item in
             let action: Action
-            if let command = item.cleanupCommand {
+            if item.reason == .loginItem {
+                action = .skip("macOS drops this record when the app is gone; to stop it now, turn it off in System Settings > General > Login Items & Extensions")
+            } else if let command = item.cleanupCommand {
                 action = .skip("managed by its tool; clean it with: \(command)")
             } else if item.reason == .systemExtension || item.reason == .orphanedSystemExtension {
                 action = .skip("system extensions are protected by macOS; remove it in System Settings > General > Login Items & Extensions")

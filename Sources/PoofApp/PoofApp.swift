@@ -38,6 +38,8 @@ struct ContentView: View {
                         .tag(SidebarItem.orphans)
                     Label("Developer", systemImage: "hammer")
                         .tag(SidebarItem.developer)
+                    Label("Login Items", systemImage: "power")
+                        .tag(SidebarItem.loginItems)
                     Label("Quarantine", systemImage: "archivebox")
                         .badge(model.sessions.count)
                         .tag(SidebarItem.quarantine)
@@ -99,6 +101,8 @@ struct ContentView: View {
             OrphansView()
         case .developer:
             DeveloperView()
+        case .loginItems:
+            LoginItemsView()
         case .quarantine:
             QuarantineView()
         case .app(let path):

@@ -15,6 +15,9 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   crash reports, and logs nested in vendor folders. Helpers that other installed apps also
   embed are marked shared.
 - README: comparison with AppCleaner on FortiClient, DaVinci Resolve, Word and Antigravity.
+- `sudo poof login-items` and a Login Items section in the app: apps and helpers that start
+  at login or run in the background, read from `sfltool dumpbtm`, with records whose file is
+  missing listed first. `sudo poof scan <app>` includes the app's records. Read-only.
 - `poof dev` and a Developer section in the app: developer caches, DerivedData of deleted
   projects, build folders of idle projects (`--projects`), and the cleanup command for data
   a tool manages itself (simulators, Homebrew, Go, Rust toolchains).
