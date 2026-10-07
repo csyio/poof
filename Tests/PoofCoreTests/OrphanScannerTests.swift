@@ -38,6 +38,8 @@ struct OrphanScannerTests {
         try (["ProgramArguments": ["/Applications/Gone.app/Contents/MacOS/updater"]] as NSDictionary)
             .write(to: agents.appendingPathComponent("com.gone.updater.plist"))
         try (["Program": "/bin/sh"] as NSDictionary).write(to: agents.appendingPathComponent("com.fine.agent.plist"))
+        try (["Program": "/Applications/Word.app/Contents/updater"] as NSDictionary)
+            .write(to: agents.appendingPathComponent("com.microsoft.update.agent.plist"))
         let root = home.appendingPathComponent("root")
         try FileManager.default.createDirectory(at: root.appendingPathComponent("bin"), withIntermediateDirectories: true)
         try Data().write(to: root.appendingPathComponent("bin/sh"))
@@ -48,6 +50,7 @@ struct OrphanScannerTests {
         #expect(found == [
             "com.gone.updater.plist brokenLaunchItem",
             "com.logi.ghub.plist orphanedBundleID",
+            "com.microsoft.update.agent.plist brokenLaunchItemOfInstalledVendor",
         ])
     }
 

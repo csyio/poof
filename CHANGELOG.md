@@ -14,6 +14,13 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
   files and system extensions, refuses while the app is running, unloads launch items, and
   asks for a typed `yes` when items contain saved passwords, bookmarks or keys.
 - `poof restore` lists quarantine sessions and puts a removal back; `poof purge` deletes them.
+- `poof orphans --remove` quarantines orphaned files Poof is sure about; `--include-unsure`
+  adds the rest.
+
+### Changed
+
+- A launch item whose program is missing is no longer reported as certain when its vendor
+  still has apps installed (FortiClient keeps daemons for features that are not enabled).
 
 ### Fixed
 

@@ -31,24 +31,61 @@ struct Scan: ParsableCommand {
 
 struct Orphans: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List files left by apps that are no longer installed, without changing anything."
+        abstract: "List files left by apps that are no longer installed. With --remove, quarantine them.",
+        discussion: """
+        --remove moves only the items Poof is sure about. Add --include-unsure to also move \
+        preferences and caches that a command-line tool or library may have created.
+        """
     )
+
+    @Flag(help: "Move the orphaned files to quarantine. Undo with `poof restore`.")
+    var remove = false
+
+    @Flag(help: "With --remove, also move items Poof is not sure about.")
+    var includeUnsure = false
+
+    @OptionGroup var options: RemovalOptions
 
     func run() throws {
         let items = OrphanScanner().scan()
         let certain = items.filter(\.isCertain)
         let unsure = items.filter { !$0.isCertain }
-        if !certain.isEmpty {
-            print("Left by removed apps:\n")
-            printItems(certain)
+
+        guard remove else {
+            if !certain.isEmpty {
+                print("Left by removed apps:\n")
+                printItems(certain)
+            }
+            if !unsure.isEmpty {
+                print("\(certain.isEmpty ? "" : "\n")Probably left by removed apps. Check these before removing,")
+                print("a command-line tool or library may have created them:\n")
+                printItems(unsure)
+            }
+            if items.isEmpty { print("No orphaned files found.") } else { printTotal(items, suffix: "Nothing was removed.") }
+            return
         }
-        if !unsure.isEmpty {
-            print("\(certain.isEmpty ? "" : "\n")Probably left by removed apps. Check these before removing,")
-            print("a command-line tool or library may have created them:\n")
-            printItems(unsure)
+
+        let selected = includeUnsure ? items : certain
+        if selected.isEmpty {
+            print("No orphaned files to remove.")
+            return
         }
-        if items.isEmpty { print("No orphaned files found.") } else { printTotal(items, suffix: "Nothing was removed.") }
+        try performRemoval(of: selected, name: "Orphaned files", bundleID: nil, retry: "poof orphans --remove\(includeUnsure ? " --include-unsure" : "")", options: options)
+        if !includeUnsure && !unsure.isEmpty {
+            print("\n\(unsure.count) items Poof is not sure about were kept. Review them with `poof orphans`.")
+        }
     }
+}
+
+struct RemovalOptions: ParsableArguments {
+    @Flag(help: "Show what would happen without moving anything.")
+    var dryRun = false
+
+    @Flag(name: .shortAndLong, help: "Do not ask for confirmation.")
+    var yes = false
+
+    @Flag(help: "With --yes, also move items containing saved passwords, bookmarks or keys.")
+    var allowSensitive = false
 }
 
 struct Remove: ParsableCommand {
@@ -64,82 +101,80 @@ struct Remove: ParsableCommand {
     @Argument(help: "App name (e.g. \"chrome\") or path to a .app bundle.")
     var app: String
 
-    @Flag(help: "Show what would happen without moving anything.")
-    var dryRun = false
-
-    @Flag(name: .shortAndLong, help: "Do not ask for confirmation.")
-    var yes = false
-
-    @Flag(help: "With --yes, also move items containing saved passwords, bookmarks or keys.")
-    var allowSensitive = false
+    @OptionGroup var options: RemovalOptions
 
     func run() throws {
         let bundle = try findApp(app)
         if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == bundle.bundleID }) {
             throw ValidationError("\(bundle.name) is running. Quit it first.")
         }
-
-        let remover = Remover()
-        let plan = remover.plan(LeftoverScanner().scan(bundle))
-        let moving = plan.filter { $0.action == .move }
-        let keeping = plan.filter { $0.action != .move }
-        let sensitive = moving.filter { !$0.sensitiveFiles.isEmpty }
-
         print("\(bundle.name)  \(bundle.bundleID)\n")
-        print("Move to quarantine:")
-        printItems(moving.map(\.item))
-        if !keeping.isEmpty {
-            print("\nKeep:")
-            for planned in keeping {
-                if case .skip(let reason) = planned.action {
-                    print("  \(planned.item.url.path)\n    \(reason)")
-                }
-            }
-        }
-        if !sensitive.isEmpty {
-            print("\n! These items contain personal data that is hard to get back once purged:")
-            for planned in sensitive {
-                print("  \(planned.item.url.path)")
-                for file in planned.sensitiveFiles.prefix(5) { print("    \(file)") }
-                if planned.sensitiveFiles.count > 5 { print("    and \(planned.sensitiveFiles.count - 5) more") }
-            }
-            print("  Export anything you need (for example passwords from the app's settings) before purging.")
-        }
-        let needsAdmin = keeping.contains { $0.item.isSystem && $0.item.sharedWith.isEmpty && $0.item.reason != .systemExtension }
-        if needsAdmin {
-            print("\nSome items need administrator rights. To remove everything at once, run:")
-            print("  sudo poof remove \(shellQuote(app))")
-        }
-        printTotal(moving.map(\.item), suffix: "Nothing has been moved yet.")
+        try performRemoval(of: LeftoverScanner().scan(bundle), name: bundle.name, bundleID: bundle.bundleID,
+                           retry: "poof remove \(shellQuote(app))", options: options)
+    }
+}
 
-        if dryRun || moving.isEmpty { return }
-        if yes {
-            if !sensitive.isEmpty && !allowSensitive {
-                throw ValidationError("Items contain personal data. Re-run with --allow-sensitive to move them anyway.")
-            }
-        } else {
-            let question = sensitive.isEmpty ? "Move \(moving.count) items to quarantine? [y/N] " : "Type \"yes\" to move them, including personal data: "
-            print("\n" + question, terminator: "")
-            let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-            guard sensitive.isEmpty ? ["y", "yes"].contains(answer) : answer == "yes" else {
-                print("Nothing was removed.")
-                return
-            }
-        }
+/// Shows the plan, asks for confirmation and moves the items into one quarantine session.
+func performRemoval(of items: [Leftover], name: String, bundleID: String?, retry: String, options: RemovalOptions) throws {
+    let remover = Remover()
+    let plan = remover.plan(items)
+    let moving = plan.filter { $0.action == .move }
+    let keeping = plan.filter { $0.action != .move }
+    let sensitive = moving.filter { !$0.sensitiveFiles.isEmpty }
 
-        let (session, outcomes) = try remover.execute(plan, appName: bundle.name, bundleID: bundle.bundleID)
-        let failed = outcomes.compactMap { planned, outcome -> (Leftover, String)? in
-            if case .failed(let reason) = outcome { return (planned.item, reason) }
-            return nil
+    print("Move to quarantine:")
+    printItems(moving.map(\.item))
+    if !keeping.isEmpty {
+        print("\nKeep:")
+        for planned in keeping {
+            if case .skip(let reason) = planned.action {
+                print("  \(planned.item.url.path)\n    \(reason)")
+            }
         }
-        let moved = outcomes.filter { if case .moved = $0.1 { true } else { false } }
-        print("\nMoved \(moved.count) items (\(format(moved.reduce(0) { $0 + $1.0.item.size }))) to quarantine.")
-        for (item, reason) in failed {
-            print("  Could not move \(item.url.path)\n    \(reason)")
+    }
+    if !sensitive.isEmpty {
+        print("\n! These items contain personal data that is hard to get back once purged:")
+        for planned in sensitive {
+            print("  \(planned.item.url.path)")
+            for file in planned.sensitiveFiles.prefix(5) { print("    \(file)") }
+            if planned.sensitiveFiles.count > 5 { print("    and \(planned.sensitiveFiles.count - 5) more") }
         }
-        if !moved.isEmpty {
-            print("Undo: poof restore \(session.id)")
+        print("  Export anything you need (for example passwords from the app's settings) before purging.")
+    }
+    let needsAdmin = keeping.contains { $0.action == Remover.needsAdminSkip }
+    if needsAdmin {
+        print("\nSome items need administrator rights. To remove everything at once, run:")
+        print("  sudo \(retry)")
+    }
+    printTotal(moving.map(\.item), suffix: "Nothing has been moved yet.")
+
+    if options.dryRun || moving.isEmpty { return }
+    if options.yes {
+        if !sensitive.isEmpty && !options.allowSensitive {
+            throw ValidationError("Items contain personal data. Re-run with --allow-sensitive to move them anyway.")
         }
+    } else {
+        let question = sensitive.isEmpty ? "Move \(moving.count) items to quarantine? [y/N] " : "Type \"yes\" to move them, including personal data: "
+        print("\n" + question, terminator: "")
+        let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        guard sensitive.isEmpty ? ["y", "yes"].contains(answer) : answer == "yes" else {
+            print("Nothing was removed.")
+            return
+        }
+    }
+
+    let (session, outcomes) = try remover.execute(plan, appName: name, bundleID: bundleID)
+    let failed = outcomes.compactMap { planned, outcome -> (Leftover, String)? in
+        if case .failed(let reason) = outcome { return (planned.item, reason) }
+        return nil
+    }
+    let moved = outcomes.filter { if case .moved = $0.1 { true } else { false } }
+    print("\nMoved \(moved.count) items (\(format(moved.reduce(0) { $0 + $1.0.item.size }))) to quarantine.")
+    for (item, reason) in failed {
+        print("  Could not move \(item.url.path)\n    \(reason)")
+    }
+    if !moved.isEmpty {
+        print("Undo: poof restore \(session.id)")
     }
 }
 

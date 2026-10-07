@@ -21,6 +21,8 @@ public struct Remover: Sendable {
         case failed(String)
     }
 
+    public static let needsAdminSkip = Action.skip("needs administrator rights; run with sudo")
+
     public let quarantine: Quarantine
     let isRoot: Bool
     /// Stops a launch agent or daemon before its plist is moved.
@@ -44,7 +46,7 @@ public struct Remover: Sendable {
             } else if !item.sharedWith.isEmpty {
                 action = .skip("also used by \(item.sharedWith.joined(separator: ", "))")
             } else if item.isSystem && !isRoot {
-                action = .skip("needs administrator rights; run with sudo")
+                action = Self.needsAdminSkip
             } else {
                 action = .move
             }

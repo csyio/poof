@@ -14,6 +14,7 @@ public struct Leftover: Sendable, Equatable {
         case systemExtension = "system extension"
         case orphanedSystemExtension = "system extension of a removed app"
         case brokenLaunchItem = "launch item whose program is gone"
+        case brokenLaunchItemOfInstalledVendor = "launch item whose program is gone, its vendor still has apps installed"
         case orphanedAppData = "app data, no installed app from this vendor"
         case orphanedBundleID = "named after an app, no installed app from this vendor"
     }
@@ -24,7 +25,7 @@ public struct Leftover: Sendable, Equatable {
     /// Other apps that use this item. Removing it may break them.
     public var sharedWith: [String] = []
     /// False when Poof's evidence is circumstantial and a person should check before removing.
-    public var isCertain: Bool { reason != .orphanedBundleID }
+    public var isCertain: Bool { reason != .orphanedBundleID && reason != .brokenLaunchItemOfInstalledVendor }
     /// Extra context shown next to the item, e.g. a system extension's identifier and state.
     public var detail: String?
     /// Needs administrator rights to remove.

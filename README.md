@@ -35,7 +35,12 @@ Poof looks in the standard `~/Library` and `/Library` locations and matches entr
   state (only apps create these), system extensions whose app is gone, and launch agents
   or daemons whose program no longer exists.
 - **Probably left by removed apps**: preferences and caches named after a bundle ID. Command-line
-  tools and libraries write these too, so check them first.
+  tools and libraries write these too, so check them first. Launch items with a missing
+  program also land here when the vendor still has apps installed, since the app may
+  install the program later.
+
+`poof orphans --remove` moves the first group to quarantine, with the same checks as
+`poof remove`. Add `--include-unsure` to move the second group too.
 
 A file counts as orphaned only when no installed app comes from the same vendor
 (`com.microsoft.office.plist` stays while any Microsoft app is installed). Installers left
@@ -81,6 +86,7 @@ swift build -c release
 ```sh
 poof scan chrome            # an installed app and its files
 poof orphans                # files left by apps that are already gone
+poof orphans --remove       # quarantine the ones Poof is sure about
 poof remove chrome          # move the app and its files to quarantine
 sudo poof remove chrome     # same, including files in system folders
 poof restore                # list what is in quarantine
@@ -113,10 +119,9 @@ Items marked `[admin]` need administrator rights to remove.
 ## Roadmap
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
-2. `poof orphans --remove`.
-3. Comparison: run Poof and other uninstallers on the same installed apps and publish what each one finds.
-4. SwiftUI app with Full Disk Access and a privileged helper.
-5. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
+2. Comparison: run Poof and other uninstallers on the same installed apps and publish what each one finds.
+3. SwiftUI app with Full Disk Access and a privileged helper.
+4. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
 ## Releases
 

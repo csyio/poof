@@ -47,7 +47,12 @@ public struct OrphanScanner: Sendable {
                     guard !plist.lastPathComponent.hasPrefix("com.apple."),
                           let program = Self.launchProgram(plist), program.hasPrefix("/"),
                           !fm.fileExists(atPath: systemRoot.appendingPathComponent(program).path) else { continue }
-                    found.add(plist, .brokenLaunchItem, detail: "runs \(program)")
+                    // The app may install the program later (FortiClient's ZTNA daemon), so a
+                    // vendor that still has apps installed gets the benefit of the doubt.
+                    let id = Self.bundleID(fromEntryName: plist.lastPathComponent)
+                    let reason: Leftover.Reason = id.map(isInstalledOrVendorPresent) == true
+                        ? .brokenLaunchItemOfInstalledVendor : .brokenLaunchItem
+                    found.add(plist, reason, detail: "runs \(program)")
                 }
             }
         }
