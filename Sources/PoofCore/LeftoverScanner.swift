@@ -1,7 +1,7 @@
 import Foundation
 
 /// A file or folder that belongs to an app, and why Poof thinks so.
-public struct Leftover: Sendable, Equatable {
+public struct Leftover: Sendable, Equatable, Identifiable {
     public enum Reason: String, Sendable {
         case appBundle = "app bundle"
         case bundleID = "bundle ID"
@@ -31,6 +31,15 @@ public struct Leftover: Sendable, Equatable {
     /// Needs administrator rights to remove.
     public var isSystem: Bool {
         !FileManager.default.isWritableFile(atPath: url.deletingLastPathComponent().path)
+    }
+    public var id: String { url.path }
+
+    public init(url: URL, reason: Reason, size: Int64, sharedWith: [String] = [], detail: String? = nil) {
+        self.url = url
+        self.reason = reason
+        self.size = size
+        self.sharedWith = sharedWith
+        self.detail = detail
     }
 }
 
@@ -200,7 +209,7 @@ public struct LeftoverScanner: Sendable {
         return name
     }
 
-    static func size(of url: URL) -> Int64 {
+    public static func size(of url: URL) -> Int64 {
         let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isDirectoryKey]
         guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return 0 }
         guard values.isDirectory == true else { return Int64(values.totalFileAllocatedSize ?? 0) }

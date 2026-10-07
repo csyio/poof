@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "poof", targets: ["poof"]),
+        .executable(name: "PoofApp", targets: ["PoofApp"]),
         .library(name: "PoofCore", targets: ["PoofCore"]),
     ],
     dependencies: [
@@ -20,6 +21,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .executableTarget(name: "PoofApp", dependencies: ["PoofCore"]),
         .testTarget(name: "PoofCoreTests", dependencies: ["PoofCore"]),
     ]
 )

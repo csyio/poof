@@ -6,6 +6,12 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
 
 ### Added
 
+- Poof.app: a SwiftUI app with the installed apps, leftovers of removed apps and the
+  quarantine. Items can be checked and unchecked before removal; personal data needs an
+  explicit acknowledgement; files in system folders are moved by the bundled CLI after the
+  administrator password prompt. Shows a banner while Full Disk Access is missing.
+- Releases include `Poof-<version>.zip`.
+
 - `poof orphans` lists files left by apps that are no longer installed, split into items
   only apps create and items a tool or library may also have created.
 - `poof scan` finds system extensions an app activated.

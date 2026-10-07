@@ -63,6 +63,21 @@ treating them as leftovers:
 
 ## Install
 
+### App
+
+Download `Poof-<version>.zip` from [Releases](https://github.com/csyio/poof/releases),
+unzip it and move `Poof.app` to Applications. The app is not notarized yet, so the first
+time macOS blocks it: open System Settings > Privacy & Security and click "Open Anyway".
+
+Then give Poof Full Disk Access (System Settings > Privacy & Security > Full Disk Access).
+Without it macOS hides other apps' sandboxed data. Poof shows a banner until it has access.
+
+The app lists your apps, the leftovers of removed apps, and the quarantine. Drop an app
+onto the window to inspect one outside the Applications folder. Files in system folders
+are moved by the bundled `poof` tool after macOS asks for your password.
+
+### Command line
+
 Download `poof-<version>-macos-universal.tar.gz` from
 [Releases](https://github.com/csyio/poof/releases), then:
 
@@ -79,6 +94,7 @@ To build from source (Swift 6, macOS 14 or later):
 ```sh
 swift build -c release
 .build/release/poof scan chrome
+scripts/build-app.sh          # builds dist/Poof.app
 ```
 
 ## Usage
@@ -120,7 +136,7 @@ Items marked `[admin]` need administrator rights to remove.
 
 1. Scanner: login items (needs a privileged helper), browser extensions.
 2. Comparison: run Poof and other uninstallers on the same installed apps and publish what each one finds.
-3. SwiftUI app with Full Disk Access and a privileged helper.
+3. Developer ID signing and notarization.
 4. Developer leftovers: Chrome for Testing, Playwright browsers, Xcode simulators.
 
 ## Releases
@@ -128,7 +144,7 @@ Items marked `[admin]` need administrator rights to remove.
 Releases are built by GitHub Actions when a `v*` tag is pushed:
 
 1. Move the `Unreleased` notes in `CHANGELOG.md` under a new version heading.
-2. Set the same version in `Sources/poof/Version.swift`.
+2. Set the same version in `Sources/PoofCore/Version.swift`.
 3. Commit, then `git tag v0.2.0 && git push origin main v0.2.0`.
 
 Versions below 1.0 are published as pre-releases.

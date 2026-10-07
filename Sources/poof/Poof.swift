@@ -8,7 +8,7 @@ struct Poof: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Remove macOS apps and everything they leave behind.",
         version: poofVersion,
-        subcommands: [Scan.self, Orphans.self, Remove.self, Restore.self, Purge.self]
+        subcommands: [Scan.self, Orphans.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
     )
 }
 
@@ -258,6 +258,42 @@ struct Purge: ParsableCommand {
             }
         }
         print("Deleted \(format(targets.reduce(0) { $0 + $1.totalSize })).")
+    }
+}
+
+/// Used by Poof.app, which runs it as root through macOS's administrator prompt to move
+/// the items in system folders into a quarantine session the app already started.
+struct AdminMove: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "admin-move",
+        abstract: "Move items into an existing quarantine session (used by Poof.app).",
+        shouldDisplay: false
+    )
+
+    @Option(help: "Quarantine session ID.")
+    var session: String
+
+    @Argument(help: "Paths to move.")
+    var paths: [String]
+
+    func run() throws {
+        let quarantine = Quarantine()
+        guard var target = quarantine.session(session) else {
+            throw ValidationError("No quarantine session \"\(session)\"")
+        }
+        let remover = Remover(quarantine: quarantine, canWriteSystem: true)
+        let plan = paths.map { path in
+            let url = URL(fileURLWithPath: path)
+            let item = Leftover(url: url, reason: .appBundle, size: LeftoverScanner.size(of: url))
+            return Remover.PlannedItem(item: item, action: .move, sensitiveFiles: [])
+        }
+        // Always exits 0: AppleScript's `do shell script` hides stdout when a command fails,
+        // so failures are reported as "path<TAB>reason" lines instead.
+        for (planned, outcome) in remover.move(plan, into: &target) {
+            if case .failed(let reason) = outcome {
+                print("\(planned.item.url.path)\t\(reason)")
+            }
+        }
     }
 }
 

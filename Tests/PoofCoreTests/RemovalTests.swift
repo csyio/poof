@@ -25,7 +25,7 @@ struct RemovalTests {
         defer { try? FileManager.default.removeItem(at: base) }
         let own = try makeFile("Library/Caches/com.example.app/data")
         let shared = try makeFile("Library/Group Containers/TEAM.shared/x")
-        let remover = Remover(quarantine: quarantine, isRoot: false, stopService: { _ in })
+        let remover = Remover(quarantine: quarantine, canWriteSystem: false, stopService: { _ in })
         let plan = remover.plan([
             leftover(own.deletingLastPathComponent()),
             leftover(shared, .packageFile, sharedWith: ["com.example.other"]),
@@ -52,7 +52,7 @@ struct RemovalTests {
         let cache = try makeFile("Library/Caches/com.example.app/data", contents: "cache")
         let agent = try makeFile("Library/LaunchAgents/com.example.app.plist")
         let stopped = StoppedServices()
-        let remover = Remover(quarantine: quarantine, isRoot: false, stopService: { stopped.plists.append($0.lastPathComponent) })
+        let remover = Remover(quarantine: quarantine, canWriteSystem: false, stopService: { stopped.plists.append($0.lastPathComponent) })
 
         let plan = remover.plan([leftover(cache.deletingLastPathComponent()), leftover(agent, .launchItem)])
         let (session, outcomes) = try remover.execute(plan, appName: "Example", bundleID: "com.example.app")

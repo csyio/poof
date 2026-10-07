@@ -8,11 +8,18 @@ public struct Remover: Sendable {
         case skip(String)
     }
 
-    public struct PlannedItem: Sendable {
+    public struct PlannedItem: Sendable, Identifiable {
         public let item: Leftover
         public let action: Action
         /// Saved passwords, bookmarks, keychains and the like found inside the item.
         public let sensitiveFiles: [String]
+        public var id: String { item.id }
+
+        public init(item: Leftover, action: Action, sensitiveFiles: [String]) {
+            self.item = item
+            self.action = action
+            self.sensitiveFiles = sensitiveFiles
+        }
     }
 
     public enum Outcome: Sendable {
@@ -24,17 +31,19 @@ public struct Remover: Sendable {
     public static let needsAdminSkip = Action.skip("needs administrator rights; run with sudo")
 
     public let quarantine: Quarantine
-    let isRoot: Bool
+    /// Whether items in system folders can be moved: running as root, or (in the app)
+    /// because they will be handed to a privileged helper.
+    let canWriteSystem: Bool
     /// Stops a launch agent or daemon before its plist is moved.
     let stopService: @Sendable (URL) -> Void
 
     public init(
         quarantine: Quarantine = Quarantine(),
-        isRoot: Bool = UserContext.isRoot,
+        canWriteSystem: Bool = UserContext.isRoot,
         stopService: @escaping @Sendable (URL) -> Void = Remover.bootout
     ) {
         self.quarantine = quarantine
-        self.isRoot = isRoot
+        self.canWriteSystem = canWriteSystem
         self.stopService = stopService
     }
 
@@ -45,7 +54,7 @@ public struct Remover: Sendable {
                 action = .skip("system extensions are protected by macOS; remove it in System Settings > General > Login Items & Extensions")
             } else if !item.sharedWith.isEmpty {
                 action = .skip("also used by \(item.sharedWith.joined(separator: ", "))")
-            } else if item.isSystem && !isRoot {
+            } else if item.isSystem && !canWriteSystem {
                 action = Self.needsAdminSkip
             } else {
                 action = .move
@@ -57,24 +66,27 @@ public struct Remover: Sendable {
     /// Moves every `.move` item into one quarantine session.
     public func execute(_ plan: [PlannedItem], appName: String, bundleID: String?) throws -> (Quarantine.Session, [(PlannedItem, Outcome)]) {
         var session = try quarantine.begin(appName: appName, bundleID: bundleID)
-        var outcomes: [(PlannedItem, Outcome)] = []
-        for planned in plan {
-            guard planned.action == .move else {
-                if case .skip(let reason) = planned.action { outcomes.append((planned, .skipped(reason))) }
-                continue
-            }
-            if planned.item.url.pathExtension == "plist", planned.item.url.deletingLastPathComponent().lastPathComponent.hasPrefix("Launch") {
-                stopService(planned.item.url)
-            }
-            do {
-                try quarantine.move(planned.item.url, size: planned.item.size, into: &session)
-                outcomes.append((planned, .moved))
-            } catch {
-                outcomes.append((planned, .failed(Self.explain(error))))
-            }
-        }
+        let outcomes = move(plan, into: &session)
         if session.entries.isEmpty { try? quarantine.purge(session.id) }
         return (session, outcomes)
+    }
+
+    /// Moves every `.move` item into an existing session, stopping launch items first.
+    public func move(_ plan: [PlannedItem], into session: inout Quarantine.Session) -> [(PlannedItem, Outcome)] {
+        plan.map { planned in
+            if case .skip(let reason) = planned.action { return (planned, .skipped(reason)) }
+            if Self.isLaunchItem(planned.item.url) { stopService(planned.item.url) }
+            do {
+                try quarantine.move(planned.item.url, size: planned.item.size, into: &session)
+                return (planned, .moved)
+            } catch {
+                return (planned, .failed(Self.explain(error)))
+            }
+        }
+    }
+
+    static func isLaunchItem(_ url: URL) -> Bool {
+        url.pathExtension == "plist" && url.deletingLastPathComponent().lastPathComponent.hasPrefix("Launch")
     }
 
     static func explain(_ error: Error) -> String {

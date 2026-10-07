@@ -40,17 +40,7 @@ public struct AppBundle: Sendable, Equatable {
         if query.hasSuffix(".app"), fileManager.fileExists(atPath: query) {
             return try AppBundle(at: URL(fileURLWithPath: query))
         }
-        let dirs = ["/Applications", "/Applications/Utilities", UserContext.home.path + "/Applications"]
-        // Some apps ship inside a folder ("/Applications/DaVinci Resolve/DaVinci Resolve.app").
-        func apps(in dir: URL, depth: Int) -> [URL] {
-            let entries = (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-            return entries.flatMap { entry -> [URL] in
-                if entry.pathExtension == "app" { return [entry] }
-                let isFolder = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-                return depth > 0 && isFolder ? apps(in: entry, depth: depth - 1) : []
-            }
-        }
-        let apps = dirs.flatMap { apps(in: URL(fileURLWithPath: $0), depth: 1) }
+        let apps = installedAppURLs(fileManager: fileManager)
         let needle = query.lowercased()
         let stem = { (url: URL) in url.deletingPathExtension().lastPathComponent.lowercased() }
         let matches = apps.filter { stem($0) == needle }
@@ -61,6 +51,31 @@ public struct AppBundle: Sendable, Equatable {
         default: throw PoofError.ambiguous(query, candidates.map(\.lastPathComponent).sorted())
         }
     }
+
+    /// App bundles in the standard app folders, including one level of subfolders
+    /// ("/Applications/DaVinci Resolve/DaVinci Resolve.app").
+    public static func installedAppURLs(fileManager: FileManager = .default) -> [URL] {
+        func apps(in dir: URL, depth: Int) -> [URL] {
+            let entries = (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            return entries.flatMap { entry -> [URL] in
+                if entry.pathExtension == "app" { return [entry] }
+                let isFolder = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                return depth > 0 && isFolder ? apps(in: entry, depth: depth - 1) : []
+            }
+        }
+        let dirs = ["/Applications", "/Applications/Utilities", UserContext.home.path + "/Applications"]
+        return dirs.flatMap { apps(in: URL(fileURLWithPath: $0), depth: 1) }
+    }
+
+    /// Installed apps a user can remove: Apple's own apps are left out.
+    public static func installedApps() -> [AppBundle] {
+        installedAppURLs().compactMap { try? AppBundle(at: $0) }
+            .filter { !$0.bundleID.lowercased().hasPrefix("com.apple.") }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// The name people see in Finder ("Microsoft Word" rather than "Word").
+    public var displayName: String { url.deletingPathExtension().lastPathComponent }
 
     private static func teamID(of url: URL) -> String? {
         var code: SecStaticCode?

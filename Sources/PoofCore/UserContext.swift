@@ -6,8 +6,11 @@ public enum UserContext {
     public static var isRoot: Bool { geteuid() == 0 }
 
     public static var uid: uid_t {
-        if isRoot, let sudoUID = ProcessInfo.processInfo.environment["SUDO_UID"].flatMap(UInt32.init) {
-            return sudoUID
+        // SUDO_UID comes from sudo; POOF_UID from the app, which runs the CLI as root
+        // through macOS's administrator prompt, where SUDO_UID is not set.
+        let env = ProcessInfo.processInfo.environment
+        if isRoot, let id = (env["SUDO_UID"] ?? env["POOF_UID"]).flatMap(UInt32.init) {
+            return id
         }
         return getuid()
     }

@@ -93,6 +93,10 @@ public struct Quarantine: Sendable {
         }.sorted { $0.date > $1.date }
     }
 
+    public func session(_ id: String) -> Session? {
+        sessions().first { $0.id == id }
+    }
+
     /// Puts every item back where it was. Items whose original path is taken again
     /// (the app was reinstalled) stay in quarantine and are reported.
     @discardableResult
