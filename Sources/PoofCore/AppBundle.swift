@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// An installed application and the identifiers used to find its leftovers.
 public struct AppBundle: Sendable, Equatable {
@@ -9,13 +8,20 @@ public struct AppBundle: Sendable, Equatable {
     public let teamID: String?
     /// Labels of helpers the app installs into /Library/PrivilegedHelperTools (`SMPrivilegedExecutables`).
     public let privilegedHelpers: [String]
+    /// The code signature read when the app was loaded from disk, kept so it is read once.
+    let signature: CodeSignature?
 
     public init(url: URL, name: String, bundleID: String, teamID: String?, privilegedHelpers: [String] = []) {
+        self.init(url: url, name: name, bundleID: bundleID, teamID: teamID, privilegedHelpers: privilegedHelpers, signature: nil)
+    }
+
+    init(url: URL, name: String, bundleID: String, teamID: String?, privilegedHelpers: [String], signature: CodeSignature?) {
         self.url = url
         self.name = name
         self.bundleID = bundleID
         self.teamID = teamID
         self.privilegedHelpers = privilegedHelpers
+        self.signature = signature
     }
 
     /// The display name and the file name, which can differ ("Word" vs "Microsoft Word").
@@ -32,13 +38,18 @@ public struct AppBundle: Sendable, Equatable {
         let name = (bundle.infoDictionary?["CFBundleName"] as? String)
             ?? url.deletingPathExtension().lastPathComponent
         let helpers = (bundle.infoDictionary?["SMPrivilegedExecutables"] as? [String: Any])?.keys.sorted() ?? []
-        self.init(url: url, name: name, bundleID: bundleID, teamID: Self.teamID(of: url), privilegedHelpers: helpers)
+        // Only a team ID macOS can verify against an Apple-issued certificate is kept, so a
+        // self-signed app cannot claim another developer's files.
+        let signature = CodeSignature.read(url)
+        self.init(url: url, name: name, bundleID: bundleID, teamID: signature.teamID, privilegedHelpers: helpers,
+                  signature: signature)
     }
 
     /// Resolves a user-supplied name ("chrome", "Google Chrome") or path to an installed app.
     public static func find(_ query: String, fileManager: FileManager = .default) throws -> AppBundle {
         if query.hasSuffix(".app"), fileManager.fileExists(atPath: query) {
-            return try AppBundle(at: URL(fileURLWithPath: query))
+            // Absolute and without "..", so it compares equal to the same app found in a folder listing.
+            return try AppBundle(at: URL(fileURLWithPath: query).absoluteURL.standardizedFileURL)
         }
         let apps = installedAppURLs(fileManager: fileManager)
         let needle = query.lowercased()
@@ -55,6 +66,13 @@ public struct AppBundle: Sendable, Equatable {
     /// App bundles in the standard app folders, including one level of subfolders
     /// ("/Applications/DaVinci Resolve/DaVinci Resolve.app").
     public static func installedAppURLs(fileManager: FileManager = .default) -> [URL] {
+        let dirs = ["/Applications", "/Applications/Utilities", UserContext.home.path + "/Applications"]
+        return appURLs(in: dirs.map { URL(fileURLWithPath: $0) }, fileManager: fileManager)
+    }
+
+    /// Apps in `dirs` and their direct subfolders, each once: /Applications at depth 1
+    /// already enters /Applications/Utilities, which is also listed on its own.
+    static func appURLs(in dirs: [URL], fileManager: FileManager = .default) -> [URL] {
         func apps(in dir: URL, depth: Int) -> [URL] {
             let entries = (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
             return entries.flatMap { entry -> [URL] in
@@ -63,29 +81,38 @@ public struct AppBundle: Sendable, Equatable {
                 return depth > 0 && isFolder ? apps(in: entry, depth: depth - 1) : []
             }
         }
-        let dirs = ["/Applications", "/Applications/Utilities", UserContext.home.path + "/Applications"]
-        return dirs.flatMap { apps(in: URL(fileURLWithPath: $0), depth: 1) }
+        var seen = Set<String>()
+        return dirs.flatMap { apps(in: $0, depth: 1) }
+            .filter { seen.insert($0.absoluteURL.standardizedFileURL.path).inserted }
     }
 
     /// Installed apps a user can remove: Apple's own apps are left out.
     public static func installedApps() -> [AppBundle] {
         installedAppURLs().compactMap { try? AppBundle(at: $0) }
-            .filter { !$0.bundleID.lowercased().hasPrefix("com.apple.") }
+            .filter { !$0.isApples }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
+    /// Whether the app is Apple's: an Apple bundle ID backed by a signature only Apple can
+    /// make, its own or the App Store's (Xcode and Final Cut Pro come from the App Store).
+    /// Anyone can write "com.apple." into an Info.plist, so the ID alone proves nothing.
+    var isApples: Bool {
+        Self.isApples(bundleID: bundleID, signer: (signature ?? CodeSignature.read(url)).signer)
+    }
+
+    static func isApples(bundleID: String, signer: Signer) -> Bool {
+        claimsAppleBundleID(bundleID) && (signer == .apple || signer == .appStore)
+    }
+
+    static func claimsAppleBundleID(_ bundleID: String) -> Bool {
+        bundleID.lowercased().hasPrefix("com.apple.")
+    }
+
+    /// The bundle's path, absolute and without "." or "..", for comparing two bundles.
+    var standardPath: String { url.absoluteURL.standardizedFileURL.path }
+
     /// The name people see in Finder ("Microsoft Word" rather than "Word").
     public var displayName: String { url.deletingPathExtension().lastPathComponent }
-
-    private static func teamID(of url: URL) -> String? {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        var info: CFDictionary?
-        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
-        guard SecCodeCopySigningInformation(code, flags, &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-        return dict[kSecCodeInfoTeamIdentifier as String] as? String
-    }
 }
 
 public enum PoofError: Error, CustomStringConvertible {

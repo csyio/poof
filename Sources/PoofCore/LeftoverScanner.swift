@@ -221,7 +221,13 @@ public struct LeftoverScanner: Sendable {
         }
 
         func owner(of id: String) -> String? {
-            // Longest match first, so com.microsoft.Word.widgetextension wins over com.microsoft.Word.
+            Self.owner(of: id, among: bundleIDs)
+        }
+
+        /// The bundle ID (lowercased) a lowercased name is, or is a child of. Longest match
+        /// first, so com.microsoft.Word.widgetextension wins over com.microsoft.Word; never a
+        /// sibling under the same vendor prefix (com.google.antigravity for com.google.Chrome).
+        static func owner(of id: String, among bundleIDs: [String]) -> String? {
             bundleIDs.sorted { $0.count > $1.count }.first { id == $0 || id.hasPrefix($0 + ".") }
         }
 
@@ -259,11 +265,15 @@ public struct LeftoverScanner: Sendable {
         }
         if identity.names.contains(where: { $0.lowercased() == stem }) { return .appName }
         if entry.pathExtension == "plist", entry.deletingLastPathComponent().lastPathComponent.hasPrefix("Launch"),
-           launchItem(entry, runsFrom: [identity.appPath])
-            || identity.bundleIDs.contains(where: { launchItem(entry, isAssociatedWith: $0) }) {
+           launchItem(entry, starts: identity) {
             return .launchItem
         }
         return nil
+    }
+
+    /// Runs a program inside the app bundle, or names the app in `AssociatedBundleIdentifiers`.
+    func launchItem(_ plist: URL, starts identity: Identity) -> Bool {
+        LaunchJobFields(contentsOf: plist)?.starts(appPath: identity.appPath, bundleIDs: identity.bundleIDs) ?? false
     }
 
     /// "Resolve_054C896E-8136-5519-8DA0-02A1B6833FB3.plist" or "Resolve-2026-10-07-101500.ips".
@@ -301,18 +311,7 @@ public struct LeftoverScanner: Sendable {
     }
 
     func launchItem(_ plist: URL, runsFrom roots: [String]) -> Bool {
-        guard let dict = NSDictionary(contentsOf: plist) as? [String: Any] else { return false }
-        let program = dict["Program"] as? String
-        let args = dict["ProgramArguments"] as? [String] ?? []
-        let paths = [program].compactMap { $0 } + args.prefix(1)
-        return paths.contains { path in roots.contains { path.hasPrefix($0 + "/") } }
-    }
-
-    func launchItem(_ plist: URL, isAssociatedWith bundleID: String) -> Bool {
-        guard let dict = NSDictionary(contentsOf: plist) as? [String: Any] else { return false }
-        let ids = dict["AssociatedBundleIdentifiers"] as? [String]
-            ?? (dict["AssociatedBundleIdentifiers"] as? String).map { [$0] } ?? []
-        return ids.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+        LaunchJobFields(contentsOf: plist)?.runs(from: roots) ?? false
     }
 
     /// "com.foo.bar.plist" -> "com.foo.bar", "com.foo.bar.savedstate" -> "com.foo.bar"
@@ -333,5 +332,37 @@ public struct LeftoverScanner: Sendable {
             total += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
         }
         return total
+    }
+}
+
+/// What a launch agent or daemon plist runs and which apps it names: the parts the launch-item
+/// rule reads. `LeftoverScanner` and app insights both match launch items through it.
+struct LaunchJobFields: Sendable {
+    /// `Program`, or the first of `ProgramArguments`.
+    let programs: [String]
+    /// `AssociatedBundleIdentifiers`, lowercased.
+    let associated: Set<String>
+
+    init(_ dict: [String: Any]) {
+        programs = [dict["Program"] as? String].compactMap { $0 } + ((dict["ProgramArguments"] as? [String]) ?? []).prefix(1)
+        let ids = dict["AssociatedBundleIdentifiers"] as? [String]
+            ?? (dict["AssociatedBundleIdentifiers"] as? String).map { [$0] } ?? []
+        associated = Set(ids.map { $0.lowercased() })
+    }
+
+    init?(contentsOf url: URL) {
+        guard let dict = NSDictionary(contentsOf: url) as? [String: Any] else { return nil }
+        self.init(dict)
+    }
+
+    /// Runs a program inside one of `roots`.
+    func runs(from roots: [String]) -> Bool {
+        programs.contains { path in roots.contains { path.hasPrefix($0 + "/") } }
+    }
+
+    /// Runs a program inside the app bundle, or names one of the app's bundle IDs (lowercased)
+    /// in `AssociatedBundleIdentifiers`.
+    func starts(appPath: String, bundleIDs: [String]) -> Bool {
+        runs(from: [appPath]) || bundleIDs.contains { associated.contains($0) }
     }
 }

@@ -7,6 +7,12 @@ public struct EmbeddedBundle: Sendable, Equatable {
     public let bundleID: String
     public let name: String?
     public let executable: String?
+    /// Where the bundle sits inside the app.
+    public let path: String
+
+    /// An `.app` helper (a login item or menu bar agent), as opposed to an extension, an XPC
+    /// service or a system extension, which macOS starts on its own while the app is closed.
+    public var isApp: Bool { (path as NSString).pathExtension == "app" }
 }
 
 extension AppBundle {
@@ -14,8 +20,13 @@ extension AppBundle {
     /// that come from the same vendor. Third-party frameworks are left out so that, say,
     /// Sparkle's updater (org.sparkle-project.*) does not claim other apps' Sparkle files.
     public func identity() -> (bundleIDs: [String], names: [String], executables: [String]) {
+        identity(embedded: embeddedBundles())
+    }
+
+    /// `identity()` from bundles already found by `embeddedBundles()`.
+    func identity(embedded: [EmbeddedBundle]) -> (bundleIDs: [String], names: [String], executables: [String]) {
         let vendor = Self.vendor(of: bundleID)
-        let helpers = embeddedBundles().filter {
+        let helpers = embedded.filter {
             Self.vendor(of: $0.bundleID) == vendor && !isKnownNonApp($0.bundleID)
         }
         let mainExecutable = Bundle(url: url)?.executableURL?.lastPathComponent
@@ -24,6 +35,23 @@ extension AppBundle {
             names: unique(names + helpers.compactMap(\.name)),
             executables: unique(([mainExecutable] + helpers.map(\.executable)).compactMap { $0 }.filter { $0.count >= 3 })
         )
+    }
+
+    /// Bundle IDs whose process running means the app is in use: its own, and those of the
+    /// `.app` helpers inside it from the same vendor (a login item, a menu bar agent) that no
+    /// other installed app ships (`isShared`, called with a lowercased ID). Extensions and XPC
+    /// services are left out: macOS starts them by itself, a notification service extension
+    /// for a push message for example, while the app stays closed.
+    public func runningIdentifiers(embedded: [EmbeddedBundle], isShared: (String) -> Bool) -> [String] {
+        let helpers = identity(embedded: embedded.filter(\.isApp)).bundleIDs.dropFirst()
+        return [bundleID] + helpers.filter { !isShared($0.lowercased()) }
+    }
+
+    /// `runningIdentifiers(embedded:isShared:)` for an app on its own: a helper counts as
+    /// shared when another app from the same vendor in `others` ships it too.
+    public func runningIdentifiers(among others: [AppBundle]) -> [String] {
+        let shared = Set(sharedHelpers(among: others).keys)
+        return runningIdentifiers(embedded: embeddedBundles(), isShared: shared.contains)
     }
 
     /// Bundles inside this app, found without walking its resources: only folders that hold
@@ -42,7 +70,8 @@ extension AppBundle {
                         found.append(EmbeddedBundle(
                             bundleID: id,
                             name: bundle.infoDictionary?["CFBundleName"] as? String,
-                            executable: bundle.executableURL?.lastPathComponent
+                            executable: bundle.executableURL?.lastPathComponent,
+                            path: entry.path
                         ))
                     }
                     continue

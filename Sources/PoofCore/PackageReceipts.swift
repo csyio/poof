@@ -7,6 +7,8 @@ public protocol PackageDatabase: Sendable {
     func files(of packageID: String) -> [String]
     /// Where the package was installed, relative to the volume root ("" or "Library").
     func installLocation(of packageID: String) -> String
+    /// When the package was installed, if the receipt records it.
+    func installTime(of packageID: String) -> Date?
 }
 
 /// Package receipts from `/var/db/receipts`, read through `pkgutil`.
@@ -25,6 +27,12 @@ public struct SystemPackageDatabase: PackageDatabase {
         let data = Self.pkgutil(["--pkg-info-plist", packageID])
         let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         return info?["install-location"] as? String ?? ""
+    }
+
+    public func installTime(of packageID: String) -> Date? {
+        let data = Self.pkgutil(["--pkg-info-plist", packageID])
+        let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        return (info?["install-time"] as? Int).map { Date(timeIntervalSince1970: TimeInterval($0)) }
     }
 
     static func pkgutil(_ arguments: [String]) -> Data {
@@ -63,6 +71,7 @@ public struct PackageMatch: Sendable, Equatable {
 
 extension PackageDatabase {
     public func installLocation(of packageID: String) -> String { "" }
+    public func installTime(of packageID: String) -> Date? { nil }
 
     /// Packages that installed `app`.
     ///

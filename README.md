@@ -7,10 +7,16 @@ Remove macOS apps and the files they leave behind, without breaking the apps tha
 Poof is a Mac app and a command-line tool. It finds an app's files across `~/Library`,
 `/Library`, installer receipts, system extensions and login items; moves them to a quarantine
 you can restore from; and keeps files that other apps still use. It also finds files left by
-apps that are already gone, and caches left by developer tools.
+apps that are already gone, and caches left by developer tools. It also explains why an app
+is on your Mac and lists the browser extensions you have installed.
 
 > Status: early development (0.x). Removal never deletes: items wait in quarantine until you
 > run `poof purge`. Releases are not notarized yet.
+
+<p align="center"><img src="docs/screenshot-apps.png" width="880" alt="The Apps section of Poof.app: a table of apps with developer, origin, last use, size and a verdict"></p>
+<p align="center"><img src="docs/screenshot-about.png" width="880" alt="An app's page in Poof.app: the About this app panel with a verdict, a recommendation and findings, above the app's files"></p>
+
+The screenshots show demo data.
 
 ## Install
 
@@ -23,8 +29,10 @@ time macOS blocks it: open System Settings > Privacy & Security and click "Open 
 Then give Poof Full Disk Access (System Settings > Privacy & Security > Full Disk Access).
 Without it macOS hides other apps' sandboxed data. Poof shows a banner until it has access.
 
-The app lists your apps, the leftovers of removed apps, and the quarantine. Drop an app
-onto the window to inspect one outside the Applications folder. Files in system folders
+The app lists your apps (with where each came from, when it was last opened and a verdict),
+the leftovers of removed apps, your browser extensions, and the quarantine. An "About this
+app" panel above each app's files explains why the app is there. Drop an app onto the window
+to inspect one outside the Applications folder. Files in system folders
 are moved by the bundled `poof` tool after macOS asks for your password.
 
 ### Command line
@@ -52,6 +60,10 @@ scripts/build-app.sh          # builds dist/Poof.app
 
 ```sh
 poof scan chrome            # an installed app and its files
+poof apps                   # every app: origin, last used, size, verdict
+poof apps --unused 90       # apps not opened for 90 days or more
+poof why "logi options+"    # why an app is here and whether removing it matters
+poof extensions             # extensions in your browsers, with flags
 poof orphans                # files left by apps that are already gone
 poof orphans --remove       # quarantine the ones Poof is sure about
 poof dev                    # caches and build output of developer tools
@@ -64,6 +76,37 @@ poof restore                # list what is in quarantine
 poof restore --last         # put the last removal back
 poof purge --older-than 7   # permanently delete removals older than 7 days
 ```
+
+## Why is this app here?
+
+`poof apps` lists installed apps with their developer, where they came from, when they were
+last opened, their size and a one-word verdict. `poof why <app>` explains the verdict.
+Both accept `--json`. The app shows the same table under Apps, and an "About this app" panel
+above each app's files.
+
+Poof reads:
+
+- **Developer**: the name in the code signature ("Developer ID Application: Vendor").
+- **Origin**: App Store receipt together with the App Store's signature, Homebrew's Caskroom
+  (when it points at the installed app), installer receipts, Setapp, or the quarantine flag
+  macOS puts on downloads, which names the browser and the date.
+- **Use**: Spotlight's last-used and date-added records, and whether the app or a helper app
+  inside it is running. Extensions that macOS starts on its own do not count.
+- **Background parts**: launch agents and daemons, privileged helpers, login item helpers and
+  network extensions inside the bundle, and system and kernel extensions from the same
+  developer. These run while the app is closed and usually mean it supports a device, a VPN
+  or a security product. Parts shipped inside the bundle count only when macOS has them on
+  (loaded in launchd, or configured as a VPN or filter); parts that are off are listed as
+  "can run in the background if enabled" and do not stop an app from being called unused.
+- **Relations**: other apps from the same developer, apps that ship this one inside their
+  bundle, and what the same installer package installed.
+
+An app is called a candidate to remove when it has not been opened for 90 days
+(`--unused <days>` changes this), is not part of macOS or of another app, and runs nothing in
+the background. When its installer package also installed other apps, Poof still lists it
+but says so: removing it leaves those apps in place. Apps installed by Homebrew should be
+removed with the `brew uninstall --cask` command Poof prints. Spotlight does not record every
+launch: helpers started by other apps may show "never".
 
 ## Safe removal
 
@@ -144,6 +187,25 @@ System Settings > General > Login Items & Extensions turns them off, so Poof nev
 them. Records whose file is missing usually come from a launch agent or daemon left behind;
 `poof orphans` finds and removes those plists.
 
+## Browser extensions
+
+`poof extensions` lists the extensions installed in every browser profile on this Mac and
+flags the ones worth a look. It reads Chrome (Beta, Canary, Dev), Chromium, Edge, Brave, Arc,
+Vivaldi and Opera profiles, Firefox profiles, and the Safari extensions that installed apps
+provide. Output is grouped by browser and profile, with each extension's version, ID, on/off
+state, source and size. `--flagged` shows only flagged extensions; `--json` prints JSON.
+
+A flag is a reason to look, not a verdict; Poof cannot tell whether an extension is harmful.
+Poof flags extensions that are turned off, were not installed from the browser's store
+(unpacked, loaded from a file, or added by another program), were installed by a policy, are
+unsigned (Firefox), or have not been updated for two years. Profiles of a browser that is no
+longer installed are marked as leftovers.
+
+Poof only reads. Remove an extension in the browser's extensions page. Safari extensions come
+with an app, so removing the app removes them; Safari's own settings are not read, so their
+on/off state is unknown. macOS may block access to browser data folders; give Poof (or your
+terminal) Full Disk Access.
+
 ## Comparison with AppCleaner
 
 Run on 2026-10-07 on macOS 27 against AppCleaner 3.6.8, using apps that were already
@@ -202,8 +264,7 @@ treating them as leftovers:
 
 ## Roadmap
 
-1. Scanner: browser extensions.
-2. Developer ID signing and notarization.
+1. Developer ID signing and notarization.
 
 ## Contributing
 
@@ -217,7 +278,7 @@ Releases are built by GitHub Actions when a `v*` tag is pushed:
 
 1. Move the `Unreleased` notes in `CHANGELOG.md` under a new version heading.
 2. Set the same version in `Sources/PoofCore/Version.swift`.
-3. Commit, then `git tag v0.2.0 && git push origin main v0.2.0`.
+3. Commit, then `git tag v0.3.0 && git push origin main v0.3.0`.
 
 Versions below 1.0 are published as pre-releases.
 

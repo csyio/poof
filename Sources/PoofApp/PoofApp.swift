@@ -34,13 +34,17 @@ struct ContentView: View {
         NavigationSplitView {
             List(selection: $model.selection) {
                 Section {
-                    Label("Leftovers", systemImage: "sparkles")
+                    SidebarLabel(title: "Apps", style: .apps)
+                        .tag(SidebarItem.appsOverview)
+                    SidebarLabel(title: "Leftovers", style: .leftovers)
                         .tag(SidebarItem.orphans)
-                    Label("Developer", systemImage: "hammer")
+                    SidebarLabel(title: "Developer", style: .developer)
                         .tag(SidebarItem.developer)
-                    Label("Login Items", systemImage: "power")
+                    SidebarLabel(title: "Login Items", style: .loginItems)
                         .tag(SidebarItem.loginItems)
-                    Label("Quarantine", systemImage: "archivebox")
+                    SidebarLabel(title: "Extensions", style: .extensions)
+                        .tag(SidebarItem.extensions)
+                    SidebarLabel(title: "Quarantine", style: .quarantine)
                         .badge(model.sessions.count)
                         .tag(SidebarItem.quarantine)
                 }
@@ -59,15 +63,18 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 if !model.hasFullDiskAccess {
                     FullDiskAccessBanner()
+                        .padding([.horizontal, .top], Space.m)
                 }
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
+            .background(Color(nsColor: .textBackgroundColor))
         }
+        .tint(Brand.accent)
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8]))
+                    .strokeBorder(Brand.gradient, style: StrokeStyle(lineWidth: 3, dash: [8]))
                     .padding(8)
                     .allowsHitTesting(false)
             }
@@ -97,20 +104,39 @@ struct ContentView: View {
     @ViewBuilder
     private var detail: some View {
         switch model.selection {
+        case .appsOverview:
+            AppsOverviewView()
         case .orphans, nil:
             OrphansView()
         case .developer:
             DeveloperView()
         case .loginItems:
             LoginItemsView()
+        case .extensions:
+            ExtensionsView()
         case .quarantine:
             QuarantineView()
         case .app(let path):
             if let app = model.app(at: path) {
                 AppDetailView(app: app).id(path)
             } else {
-                ContentUnavailableView("App not found", systemImage: "questionmark.app")
+                EmptyState(symbol: "questionmark.app.dashed", title: "App not found",
+                           caption: "It may have been moved or removed since the list was loaded.")
             }
+        }
+    }
+}
+
+/// A sidebar section with its System Settings style icon.
+struct SidebarLabel: View {
+    let title: String
+    let style: SectionStyle
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            IconTile(symbol: style.symbol, tint: style.tint, size: 20)
         }
     }
 }
@@ -122,9 +148,7 @@ struct AppRow: View {
         Label {
             Text(app.displayName).lineLimit(1)
         } icon: {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
-                .resizable()
-                .frame(width: 18, height: 18)
+            FileIcon(path: app.url.path, size: 20)
         }
     }
 }
@@ -133,23 +157,17 @@ struct FullDiskAccessBanner: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "lock.shield")
-                .font(.title2)
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Poof needs Full Disk Access to see every file")
-                    .font(.headline)
-                Text("Without it, macOS hides other apps' sandboxed data and Poof cannot measure or move it.")
+        Banner(symbol: "lock.shield.fill", tone: .caution,
+               title: "Poof needs Full Disk Access to see every file",
+               message: "Without it, macOS hides other apps' sandboxed data and Poof cannot measure or move it.") {
+            VStack(alignment: .trailing, spacing: Space.xs) {
+                Button("Open System Settings") { FullDiskAccess.openSettings() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                Button("Check Again") { model.refreshAccess() }
+                    .buttonStyle(.borderless)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Button("Open System Settings") { FullDiskAccess.openSettings() }
-            Button("Check Again") { model.refreshAccess() }
         }
-        .padding(12)
-        .background(.orange.opacity(0.1))
-        .overlay(alignment: .bottom) { Divider() }
     }
 }

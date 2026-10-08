@@ -4,6 +4,31 @@ All notable changes to Poof are listed here. Versions follow [Semantic Versionin
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
+Explains why an app is on your Mac, and lists browser extensions.
+
+### Added
+
+- Poof.app redesign: colour-coded sidebar icons, section headers with summary tiles, an app
+  header with a coloured verdict badge and a findings card, grouped file cards, tinted banners
+  and empty states, and dark mode.
+- `poof apps` and `poof why <app>`, an Apps section and an "About this app" panel in
+  Poof.app: each app's developer, origin (App Store, Homebrew, installer receipt, Setapp or
+  download quarantine), last use, size, background parts, related apps and a verdict.
+  `--unused <days>` lists apps not opened for that long; `--json` prints JSON.
+- `poof extensions` and an Extensions section in Poof.app: extensions in Chromium-based
+  browsers, Firefox and Safari, with version, state, source and size. Flags extensions that
+  are off, not from the store, installed by policy, unsigned or not updated for two years.
+  `--flagged` and `--json` are available. Firefox add-ons in the shared Mozilla folders and
+  inside Firefox.app are included. Read-only.
+
+### Changed
+
+- Launch-item matching is one shared rule used by `LeftoverScanner` and app insights.
+- Apps with a `com.apple.*` bundle ID are hidden from app lists only when Apple or the App
+  Store signed them; other claimants are listed with a warning.
+
 ## [0.2.0] - 2026-10-07
 
 Removal, a Mac app, and scanning for files from removed apps, developer tools and login items.

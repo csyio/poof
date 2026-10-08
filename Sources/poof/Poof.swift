@@ -8,7 +8,7 @@ struct Poof: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Remove macOS apps and everything they leave behind.",
         version: poofVersion,
-        subcommands: [Scan.self, Orphans.self, Dev.self, LoginItems.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
+        subcommands: [Scan.self, Apps.self, Why.self, Orphans.self, Dev.self, LoginItems.self, Extensions.self, Remove.self, Restore.self, Purge.self, AdminMove.self]
     )
 }
 

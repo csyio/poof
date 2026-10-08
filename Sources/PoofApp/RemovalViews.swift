@@ -8,48 +8,116 @@ struct AppDetailView: View {
     let app: AppBundle
     @State private var plan: [Remover.PlannedItem]?
 
+    /// Removal waits for the insight: it lists the helpers that count as the app running.
+    private var blockedReason: String? {
+        if model.isRunning(app) { return "\(app.displayName) is running. Quit it to remove it." }
+        if model.isInstalled(app), !model.hasInsight(app) { return "Checking whether \(app.displayName) is running…" }
+        return nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
-                    .resizable()
-                    .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(app.displayName).font(.title2.bold())
-                    Text(app.bundleID).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                    if let team = app.teamID {
-                        Text("Team \(team)").font(.caption).foregroundStyle(.tertiary)
-                    }
-                }
-                Spacer()
-            }
-            .padding(20)
-            Divider()
-
             if let plan {
                 RemovalList(
                     plan: plan,
                     preselected: Set(plan.filter { $0.action == .move }.map(\.id)),
                     name: app.displayName,
                     bundleID: app.bundleID,
-                    blockedReason: model.isRunning(app) ? "\(app.displayName) is running. Quit it to remove it." : nil,
+                    blockedReason: blockedReason,
                     onFinished: { await rescan() },
-                    certainTitle: "Files"
+                    certainTitle: "Files",
+                    header: AnyView(header)
                 )
             } else {
-                ProgressView("Looking for \(app.displayName)'s files…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    header
+                    HStack(spacing: Space.s) {
+                        ProgressView().controlSize(.small)
+                        Text("Looking for \(app.displayName)'s files…").foregroundStyle(.secondary)
+                    }
+                    .padding(Space.xl)
+                }
             }
         }
         .task { await rescan() }
     }
 
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AppHero(app: app)
+            AppInsightPanel(app: app)
+                .padding(.horizontal, Space.xl)
+                .padding(.bottom, Space.xs)
+        }
+    }
+
     private func rescan() async {
-        if FileManager.default.fileExists(atPath: app.url.path) {
+        if model.isInstalled(app) {
             plan = await model.plan(for: app)
         } else {
             plan = []
         }
+    }
+}
+
+/// Icon, name, developer and the facts that matter at a glance.
+struct AppHero: View {
+    @Environment(AppModel.self) private var model
+    let app: AppBundle
+
+    private var insight: AppInsight? { model.insights[app.url.path] }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Space.l) {
+            FileIcon(path: app.url.path, size: 64)
+                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(app.displayName)
+                    .font(.title.weight(.bold))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                HStack(spacing: Space.xs) {
+                    if let insight {
+                        Badge(insight.origin.label, symbol: insight.origin.symbol)
+                        if let version = insight.signals.version {
+                            Badge("Version \(version)")
+                        }
+                        if let size = insight.signals.size {
+                            Badge(formatSize(size), symbol: "internaldrive")
+                        }
+                    }
+                    // Checked live: the insight was gathered when the list loaded.
+                    if model.isRunning(app) {
+                        Badge("Running", symbol: "circle.fill", tone: .positive)
+                    }
+                }
+                .padding(.top, Space.xxs)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.xl)
+        .padding(.top, Space.xl)
+        .padding(.bottom, Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [tint.opacity(0.13), tint.opacity(0.0)], startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    private var tint: Color { insight.map { $0.verdict.tone.solid } ?? .gray }
+
+    /// "Developer · com.example.app · Team ABCDE12345"
+    private var subtitle: String {
+        var parts: [String] = []
+        if let vendor = insight?.vendor { parts.append(vendor) }
+        parts.append(app.bundleID)
+        if let team = app.teamID { parts.append("Team \(team)") }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -60,13 +128,7 @@ struct OrphansView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Leftovers").font(.title2.bold())
-                    Text("Files from apps that are no longer installed.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
+            SectionHeader(style: .leftovers, stats: PlanStats.tiles(plan)) {
                 Button {
                     Task { await rescan() }
                 } label: {
@@ -74,13 +136,11 @@ struct OrphansView: View {
                 }
                 .disabled(plan == nil)
             }
-            .padding(20)
-            Divider()
 
             if let plan {
                 if plan.isEmpty {
-                    ContentUnavailableView("No leftovers found", systemImage: "checkmark.seal",
-                                           description: Text("Every file Poof checked belongs to an installed app."))
+                    EmptyState(symbol: "checkmark.seal.fill", title: "No leftovers found",
+                               caption: "Every file Poof checked belongs to an installed app.")
                 } else {
                     RemovalList(
                         plan: plan,
@@ -93,7 +153,7 @@ struct OrphansView: View {
                     )
                 }
             } else {
-                ProgressView("Scanning…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                LoadingState(text: "Scanning…")
             }
         }
         .task { await rescan() }
@@ -113,14 +173,11 @@ struct DeveloperView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Developer").font(.title2.bold())
-                    Text(projects.map { "Caches, build output, and idle projects in \(abbreviate($0.path))." }
-                         ?? "Caches and build output of developer tools. Quarantined items use space until you delete them.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                Spacer()
+            SectionHeader(
+                style: .developer,
+                description: projects.map { "Caches, build output, and idle projects in \(abbreviate($0.path))." },
+                stats: PlanStats.tiles(plan, unsureLabel: "Review first", showSensitive: false)
+            ) {
                 Button("Choose Projects Folder…") { chooseProjects() }
                 Button {
                     Task { await rescan() }
@@ -129,13 +186,11 @@ struct DeveloperView: View {
                 }
                 .disabled(plan == nil)
             }
-            .padding(20)
-            Divider()
 
             if let plan {
                 if plan.isEmpty {
-                    ContentUnavailableView("Nothing to clean", systemImage: "checkmark.seal")
-                        .frame(maxHeight: .infinity)
+                    EmptyState(symbol: "checkmark.seal.fill", title: "Nothing to clean",
+                               caption: "No caches or build output worth removing right now.")
                 } else {
                     RemovalList(
                         plan: plan,
@@ -150,7 +205,7 @@ struct DeveloperView: View {
                     )
                 }
             } else {
-                ProgressView("Measuring developer caches…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                LoadingState(text: "Measuring developer caches…")
             }
         }
         .task { await rescan() }
@@ -172,6 +227,26 @@ struct DeveloperView: View {
     }
 }
 
+/// Header tiles for a removal plan: what could be freed and what needs a closer look.
+enum PlanStats {
+    static func tiles(_ plan: [Remover.PlannedItem]?, unsureLabel: String = "Check first", showSensitive: Bool = true) -> [Stat] {
+        let movable = plan?.filter { $0.action == .move }
+        let size = movable.map { tileSize($0.reduce(0) { $0 + $1.item.size }) } ?? "—"
+        let count = movable.map { "\($0.count)" } ?? "—"
+        let unsure = movable.map { "\($0.filter { !$0.item.isCertain }.count)" } ?? "—"
+        let sensitive = movable.map { "\($0.filter { !$0.sensitiveFiles.isEmpty }.count)" } ?? "—"
+        var tiles = [
+            Stat(label: "Can be freed", value: size, symbol: "externaldrive.fill", tint: Brand.accent),
+            Stat(label: "Items found", value: count, symbol: "doc.on.doc.fill", tint: .blue),
+            Stat(label: unsureLabel, value: unsure, symbol: "eye.fill", tint: .orange),
+        ]
+        if showSensitive {
+            tiles.append(Stat(label: "Personal data", value: sensitive, symbol: "exclamationmark.lock.fill", tint: .red))
+        }
+        return tiles
+    }
+}
+
 /// Checkable list of planned items with a footer that runs the removal.
 struct RemovalList: View {
     @Environment(AppModel.self) private var model
@@ -183,6 +258,8 @@ struct RemovalList: View {
     let certainTitle: String
     let unsureTitle: String
     let unsureFooter: String
+    /// Scrolls with the list, above the groups.
+    let header: AnyView?
 
     @State private var selected: Set<String>
     @State private var confirming = false
@@ -193,7 +270,8 @@ struct RemovalList: View {
          blockedReason: String?, onFinished: @escaping () async -> Void,
          certainTitle: String = "Left by removed apps",
          unsureTitle: String = "Check before removing",
-         unsureFooter: String = "A command-line tool or library may have created these, or the vendor still has apps installed.") {
+         unsureFooter: String = "A command-line tool or library may have created these, or the vendor still has apps installed.",
+         header: AnyView? = nil) {
         self.plan = plan
         self.name = name
         self.bundleID = bundleID
@@ -202,6 +280,7 @@ struct RemovalList: View {
         self.certainTitle = certainTitle
         self.unsureTitle = unsureTitle
         self.unsureFooter = unsureFooter
+        self.header = header
         _selected = State(initialValue: preselected)
     }
 
@@ -212,53 +291,36 @@ struct RemovalList: View {
     var body: some View {
         VStack(spacing: 0) {
             if let result {
-                ResultBanner(result: result) { self.result = nil }
+                // Undo puts the files back: scan again so the list shows them.
+                ResultBanner(result: result, onDismiss: { self.result = nil }, onRestored: onFinished)
+                    .padding([.horizontal, .top], Space.m)
             }
-            List {
-                let certain = movable.filter(\.item.isCertain)
-                let unsure = movable.filter { !$0.item.isCertain }
-                if !certain.isEmpty {
-                    Section(certainTitle) {
-                        ForEach(certain) { row($0) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let header { header }
+                    VStack(alignment: .leading, spacing: Space.xl) {
+                        let certain = movable.filter(\.item.isCertain)
+                        let unsure = movable.filter { !$0.item.isCertain }
+                        if plan.isEmpty {
+                            Label("Poof found no files for this app.", systemImage: "checkmark.circle")
+                                .foregroundStyle(.secondary)
+                                .card()
+                        }
+                        if !certain.isEmpty {
+                            group(certainTitle, items: certain)
+                        }
+                        if !unsure.isEmpty {
+                            group(unsureTitle, items: unsure, footer: unsureFooter)
+                        }
+                        if !kept.isEmpty {
+                            group("Kept", items: kept)
+                        }
                     }
-                }
-                if !unsure.isEmpty {
-                    Section {
-                        ForEach(unsure) { row($0) }
-                    } header: {
-                        Text(unsureTitle)
-                    } footer: {
-                        Text(unsureFooter)
-                    }
-                }
-                if !kept.isEmpty {
-                    Section("Kept") {
-                        ForEach(kept) { row($0) }
-                    }
+                    .padding(Space.xl)
                 }
             }
-            .listStyle(.inset)
 
-            Divider()
-            HStack(spacing: 12) {
-                if let blockedReason {
-                    Label(blockedReason, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(chosen.count) of \(movable.count) selected, \(formatSize(chosen.reduce(0) { $0 + $1.item.size }))")
-                        .foregroundStyle(.secondary)
-                    if chosen.contains(where: \.item.isSystem) {
-                        Label("Needs your password", systemImage: "lock")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                if working { ProgressView().controlSize(.small) }
-                Button("Move to Quarantine", role: .destructive) { confirming = true }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(chosen.isEmpty || working || blockedReason != nil)
-            }
-            .padding(12)
+            footer
         }
         .sheet(isPresented: $confirming) {
             ConfirmRemovalSheet(items: chosen, name: name) {
@@ -266,6 +328,58 @@ struct RemovalList: View {
                 Task { await run() }
             }
         }
+    }
+
+    private func group(_ title: String, items: [Remover.PlannedItem], footer: String? = nil) -> some View {
+        GroupCard(title: title, footer: footer) {
+            Text("\(items.count) \(items.count == 1 ? "item" : "items") · \(formatSize(items.reduce(0) { $0 + $1.item.size }))")
+                .monospacedDigit()
+        } content: {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, planned in
+                if index > 0 { RowDivider(inset: 74) }
+                row(planned)
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: Space.m) {
+            if let blockedReason {
+                Label(blockedReason, systemImage: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.callout.weight(.medium))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("\(chosen.count) of \(movable.count) selected")
+                        .font(.callout.weight(.semibold))
+                    Text(formatSize(chosen.reduce(0) { $0 + $1.item.size }))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                if chosen.contains(where: \.item.isSystem) {
+                    Badge("Needs your password", symbol: "lock.fill")
+                }
+            }
+            Spacer()
+            if working {
+                ProgressView().controlSize(.small)
+                Text("Moving to Quarantine…").font(.callout).foregroundStyle(.secondary)
+            }
+            Button(role: .destructive) {
+                confirming = true
+            } label: {
+                Label("Move to Quarantine…", systemImage: "archivebox")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Brand.accent)
+            .controlSize(.large)
+            .disabled(chosen.isEmpty || working || blockedReason != nil)
+        }
+        .padding(.horizontal, Space.xl)
+        .padding(.vertical, Space.m)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 
     private func row(_ planned: Remover.PlannedItem) -> some View {
@@ -287,6 +401,25 @@ struct RemovalList: View {
     }
 }
 
+/// A sentence with an icon on a tinted background; wraps, unlike `Badge`.
+struct FlagLabel: View {
+    let text: String
+    let symbol: String
+    let tone: Tone
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            Image(systemName: symbol).imageScale(.small)
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(tone.color)
+        .padding(.horizontal, Space.s)
+        .padding(.vertical, 3)
+        .background(tone.fill, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+    }
+}
+
 struct ItemRow: View {
     let planned: Remover.PlannedItem
     @Binding var isOn: Bool
@@ -294,49 +427,45 @@ struct ItemRow: View {
     private var item: Leftover { planned.item }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: Space.m) {
             Toggle("", isOn: $isOn)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
                 .disabled(planned.action != .move)
-            Image(nsImage: NSWorkspace.shared.icon(forFile: item.url.path))
-                .resizable()
-                .frame(width: 20, height: 20)
-            VStack(alignment: .leading, spacing: 2) {
+            FileIcon(path: item.url.path, size: 26)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(abbreviate(item.url.path))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(item.url.path)
-                HStack(spacing: 6) {
-                    Text(item.reason.rawValue)
-                    if let detail = item.detail { Text("· \(detail)").lineLimit(1) }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text(item.detail.map { "\(item.reason.rawValue) · \($0)" } ?? item.reason.rawValue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(item.detail ?? item.reason.rawValue)
                 if case .skip(let reason) = planned.action {
-                    Label(reason, systemImage: "hand.raised")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    FlagLabel(text: reason, symbol: "hand.raised.fill", tone: .neutral)
                 }
                 if !planned.sensitiveFiles.isEmpty {
-                    Label("Contains \(Array(Set(planned.sensitiveFiles.map { ($0 as NSString).lastPathComponent })).sorted().prefix(3).joined(separator: ", "))",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    FlagLabel(text: "Contains \(Array(Set(planned.sensitiveFiles.map { ($0 as NSString).lastPathComponent })).sorted().prefix(3).joined(separator: ", "))",
+                              symbol: "exclamationmark.triangle.fill", tone: .danger)
                 }
             }
-            Spacer()
+            Spacer(minLength: Space.s)
             if item.isSystem {
-                Image(systemName: "lock.fill")
-                    .foregroundStyle(.secondary)
+                Badge("Admin", symbol: "lock.fill")
                     .help("In a system folder: needs your password")
             }
             Text(formatSize(item.size))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+                .frame(minWidth: 64, alignment: .trailing)
         }
-        .padding(.vertical, 2)
-        .opacity(planned.action == .move ? 1 : 0.6)
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.s)
+        .opacity(planned.action == .move ? 1 : 0.65)
+        .contentShape(Rectangle())
         .contextMenu {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
             Button("Copy Path") {
@@ -357,27 +486,42 @@ struct ConfirmRemovalSheet: View {
     private var sensitive: [Remover.PlannedItem] { items.filter { !$0.sensitiveFiles.isEmpty } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Move \(items.count) items to quarantine?").font(.title3.bold())
-            Text("\(formatSize(items.reduce(0) { $0 + $1.item.size })) from \(name). Nothing is deleted: you can put everything back from Quarantine until you delete it there.")
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: Space.l) {
+            HStack(alignment: .top, spacing: Space.m) {
+                IconTile(symbol: "archivebox.fill", fill: Brand.gradient, size: 44)
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text("Move \(items.count) items to quarantine?").font(.title3.bold())
+                    Text("\(formatSize(items.reduce(0) { $0 + $1.item.size })) from \(name). Nothing is deleted: you can put everything back from Quarantine until you delete it there.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if !sensitive.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.s) {
                     Label("Personal data", systemImage: "exclamationmark.triangle.fill")
                         .font(.headline)
                         .foregroundStyle(.red)
                     Text("These items contain saved passwords, bookmarks, cookies or keys. Export anything you need before you delete them from Quarantine.")
                         .fixedSize(horizontal: false, vertical: true)
-                    ForEach(sensitive) { planned in
-                        Text(abbreviate(planned.item.url.path)).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(sensitive) { planned in
+                            Text(abbreviate(planned.item.url.path)).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                        }
                     }
+                    .padding(Space.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: Radius.small))
                     Toggle("I understand this includes personal data", isOn: $acknowledged)
                 }
-                .padding(10)
-                .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .padding(Space.m)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                        .strokeBorder(Color.red.opacity(0.3), lineWidth: 0.5)
+                }
             }
             if items.contains(where: \.item.isSystem) {
-                Label("macOS will ask for your password to move files from system folders.", systemImage: "lock")
+                Label("macOS will ask for your password to move files from system folders.", systemImage: "lock.fill")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -385,13 +529,17 @@ struct ConfirmRemovalSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .controlSize(.large)
                 Button("Move to Quarantine", role: .destructive, action: onConfirm)
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .controlSize(.large)
                     .disabled(!sensitive.isEmpty && !acknowledged)
             }
         }
-        .padding(20)
-        .frame(width: 460)
+        .padding(Space.xl + Space.xs)
+        .frame(width: 480)
     }
 }
 
@@ -399,22 +547,38 @@ struct ResultBanner: View {
     @Environment(AppModel.self) private var model
     let result: RemovalResult
     let onDismiss: () -> Void
+    /// Runs after Undo put the items back, so the screen can scan again.
+    var onRestored: () async -> Void = {}
     @State private var undoErrors: [String]?
 
+    private var tone: Tone { result.failures.isEmpty && !result.cancelledAdmin ? .positive : .caution }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: result.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(result.failures.isEmpty ? .green : .orange)
-                Text(summary)
+        VStack(alignment: .leading, spacing: Space.s) {
+            HStack(spacing: Space.m) {
+                IconTile(symbol: result.failures.isEmpty ? "checkmark" : "exclamationmark.triangle.fill",
+                         tint: tone.solid, size: 30)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(summary).font(.headline)
+                    if result.sessionID != nil, undoErrors == nil {
+                        Text("Everything stays in Quarantine until you delete it there.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
                 if let id = result.sessionID, undoErrors == nil {
-                    Button("Undo") {
-                        Task { undoErrors = await model.restore(id) }
+                    Button {
+                        Task {
+                            undoErrors = await model.restore(id)
+                            await onRestored()
+                        }
+                    } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
                     }
                 }
                 Button { onDismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
+                    .help("Dismiss")
             }
             if result.cancelledAdmin {
                 Text("Files in system folders were kept because the password prompt was cancelled.")
@@ -429,9 +593,12 @@ struct ResultBanner: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .background(.green.opacity(0.08))
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(Space.m)
+        .background(tone.color.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .strokeBorder(tone.color.opacity(0.28), lineWidth: 0.5)
+        }
     }
 
     private var summary: String {
